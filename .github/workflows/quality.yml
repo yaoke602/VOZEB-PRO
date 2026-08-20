@@ -54,6 +54,11 @@ jobs:
         run: pnpm run typecheck
       - name: Unit tests
         run: pnpm test
+      - name: Debian deployment script tests
+        working-directory: .
+        run: |
+          bash -n scripts/deploy-debian.sh
+          bash scripts/deploy-debian.test.sh
       - name: Format check
         run: pnpm run format:check
       - name: Production build

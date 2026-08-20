@@ -84,7 +84,7 @@ describe("Debian source deployment contract", () => {
         expect(source).toContain("classify_install_status");
         expect(source).toContain("wait_for_worker_heartbeat_change");
         expect(source).toContain("rollback_deployment");
-        expect(source).toContain('cp --preserve=mode "$BACKUP_DIR/.env" .env');
+        expect(source).toContain('cp --preserve=mode "$BACKUP_DIR/.env" "$restore_env"');
     });
 
     it("fails closed around production configuration, persistent topology, and untracked build inputs", () => {
@@ -109,6 +109,8 @@ describe("Debian source deployment contract", () => {
         expect(source).toContain("MUTATION_ACTIVE=1");
         expect(source).toContain("if ((HAD_APP == 0)); then");
         expect(source).toContain("docker compose rm --force --stop app generation-worker");
+        expect(source).toContain('.env.rollback.XXXXXX');
+        expect(source).toContain('docker compose --env-file "$restore_env" config --quiet');
     });
 
     it("does not let the no-update path recreate PostgreSQL", () => {
@@ -118,6 +120,8 @@ describe("Debian source deployment contract", () => {
         expect(body).toContain("--no-deps generation-worker");
         expect(body).toContain("assert_persistence_identity");
         expect(body).not.toContain("docker compose up -d --pull never\n");
+        expect(source).toContain('[[ "$HAD_APP" -eq 1 && "$OLD_COMMIT" == "$TARGET_COMMIT"');
+        expect(source).toContain('com.vozeb-pro.git-revision');
     });
 
     it("normalizes spaced VOZEB_PRO_IMAGE assignments when updating .env", () => {

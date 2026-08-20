@@ -467,9 +467,20 @@ set_image_in_env() {
 }
 
 rollback_deployment() {
+    local restore_env
     log "Restoring previous image configuration ${OLD_IMAGE}"
-    cp --preserve=mode "$BACKUP_DIR/.env" .env
-    docker compose config --quiet || return 1
+    restore_env="$(mktemp "${PWD}/.env.rollback.XXXXXX")" || return 1
+    if ! cp --preserve=mode "$BACKUP_DIR/.env" "$restore_env"; then
+        rm -f "$restore_env"
+        return 1
+    fi
+    chmod 600 "$restore_env" || { rm -f "$restore_env"; return 1; }
+    chown root:root "$restore_env" || { rm -f "$restore_env"; return 1; }
+    if ! docker compose --env-file "$restore_env" config --quiet; then
+        rm -f "$restore_env"
+        return 1
+    fi
+    mv -f "$restore_env" .env || { rm -f "$restore_env"; return 1; }
     if ((HAD_APP == 0)); then
         docker compose rm --force --stop app generation-worker || return 1
         assert_persistence_identity || return 1
@@ -558,7 +569,8 @@ main() {
     fast_forward_source
     assert_persistence_identity
     prepare_image_identity
-    if [[ "$OLD_COMMIT" == "$TARGET_COMMIT" && "$OLD_IMAGE" == "$TARGET_IMAGE" && $FORCE_BUILD -eq 0 ]] && docker image inspect "$TARGET_IMAGE" >/dev/null 2>&1; then
+    if [[ "$HAD_APP" -eq 1 && "$OLD_COMMIT" == "$TARGET_COMMIT" && "$OLD_IMAGE" == "$TARGET_IMAGE" && $FORCE_BUILD -eq 0 ]] && \
+        [[ "$(docker image inspect "$TARGET_IMAGE" --format '{{index .Config.Labels "com.vozeb-pro.git-revision"}}' 2>/dev/null || true)" == "$TARGET_COMMIT" ]]; then
         log "Source and deployed image already match ${TARGET_IMAGE}; skipping build and deployment"
         ensure_current_services
         return

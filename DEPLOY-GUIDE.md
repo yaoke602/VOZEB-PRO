@@ -921,7 +921,7 @@ sudo ./scripts/deploy-debian.sh --force-build
 
 更新前 `.env` 中的 `VOZEB_PRO_IMAGE` 必须与正在运行的 App 一致，App 与 Worker 也必须使用同一镜像；否则脚本会停止，防止回滚标签指向错误镜像。先用 `docker inspect` 查清现场，不要直接覆盖标签。
 
-服务器重启不会拉取 GitHub 最新代码；Compose 的 `restart: unless-stopped` 会恢复上一次验证通过的镜像。没有新提交时，脚本只检查并恢复 App/Worker，不重建 PostgreSQL。发布切换期间如果脚本异常退出或收到 `INT`/`TERM`，会自动尝试回滚；第一次部署失败时只移除本次创建的 App/Worker 容器，保留 PostgreSQL 容器及全部命名卷。发布日志位于 `/var/log/vozeb-pro-deploy.log`，升级备份位于 `/opt/vozeb-pro/backups/`。
+服务器重启不会拉取 GitHub 最新代码；Compose 的 `restart: unless-stopped` 会恢复上一次验证通过的镜像。只有实际 App 镜像、目标提交和镜像 revision 标签都一致时，脚本才走无更新检查路径；该路径只检查并恢复 App/Worker，不重建 PostgreSQL。没有 App 但保留持久卷的现场即使已人工授权，也必须先备份再执行完整发布。发布切换期间如果脚本异常退出或收到 `INT`/`TERM`，会自动尝试回滚；第一次部署失败时只移除本次创建的 App/Worker 容器，保留 PostgreSQL 容器及全部命名卷。`.env` 的发布与回滚均通过权限受控的临时文件校验后原子替换。发布日志位于 `/var/log/vozeb-pro-deploy.log`，升级备份位于 `/opt/vozeb-pro/backups/`。
 
 ```bash
 tail -n 200 /var/log/vozeb-pro-deploy.log

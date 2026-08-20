@@ -57,6 +57,32 @@ assert_equal "schema_pending" "$(classify_install_status '{"install":{"ready":fa
 assert_equal "admin_pending" "$(classify_install_status '{"install":{"ready":false,"firstAdminRequired":true,"security":{"encryptionReady":true,"installTokenReady":true},"database":{"healthy":true,"schemaReady":true}}}')" "admin pending status"
 assert_fails "unhealthy database" classify_install_status '{"install":{"ready":false,"database":{"healthy":false,"schemaReady":false}}}'
 
+assert_transaction_rollback() {
+    local trigger="$1" expected_status="$2" label="$3" event_log status
+    event_log="$(mktemp)"
+    set +e
+    (
+        rollback_deployment() { printf 'rollback\n' >> "$event_log"; }
+        log() { :; }
+        MUTATION_ACTIVE=1
+        ROLLBACK_RUNNING=0
+        arm_transaction_traps
+        case "$trigger" in
+            exit) false ;;
+            INT) kill -INT "$BASHPID" ;;
+            TERM) kill -TERM "$BASHPID" ;;
+        esac
+    )
+    status=$?
+    set -e
+    assert_equal "$expected_status" "$status" "${label} exit status"
+    assert_equal "rollback" "$(paste -sd, "$event_log")" "${label} rollback"
+}
+
+assert_transaction_rollback exit 1 "unexpected exit"
+assert_transaction_rollback INT 130 "INT signal"
+assert_transaction_rollback TERM 143 "TERM signal"
+
 (
     test_dir="$(mktemp -d)"
     cd "$test_dir"
@@ -108,11 +134,13 @@ assert_fails "unhealthy database" classify_install_status '{"install":{"ready":f
     cd "$test_dir"
     event_log="$(mktemp)"
     docker() { printf '%s\n' "$*" >> "$event_log"; }
+    chown() { :; }
     assert_persistence_identity() { return 0; }
     HAD_APP=0
     OLD_IMAGE="vozeb-pro:v0.0.6-oldold1"
     rollback_deployment
     grep -q '^compose rm --force --stop app generation-worker$' "$event_log"
+    assert_equal "VOZEB_PRO_IMAGE=vozeb-pro:v0.0.6-oldold1" "$(<.env)" "atomic .env rollback"
     if grep -q -- '--force-recreate app' "$event_log"; then
         printf 'FAIL: fresh deployment rollback attempted to recreate an old App\n' >&2
         exit 1
