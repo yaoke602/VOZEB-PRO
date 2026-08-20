@@ -825,6 +825,9 @@ curl --fail --silent --show-error http://127.0.0.1:3000/api/health/ready
 - 不把 `/api/health/live` 成功解释为 Schema、Worker、支付、存储和真实模型全部正常。
 - 不改变 `COMPOSE_PROJECT_NAME`、卷名或挂载目标来“解决”找不到数据的问题。
 - 不将服务器现场构建作为默认升级方式；默认交付本地已验证的不可变镜像。
+- 一键脚本只在人工执行时拉取代码；不要把它加入服务器开机任务或无限循环。
+- 服务器上的已跟踪源码有未提交修改时脚本会拒绝更新；先审查并提交或移走这些修改，禁止用强制 Git 清理覆盖现场修改。
+- 脚本快速备份 PostgreSQL、`.env` 和部署元数据；外部 COS/OSS Bucket 与仍在本地卷中的不可再生媒体需要独立备份策略。
 
 ## 十四、常见问题
 
@@ -852,9 +855,62 @@ curl --fail --silent --show-error http://127.0.0.1:3000/api/health/ready
 
 可以把同一不可变镜像推送到 GHCR 或私有仓库，再由服务器拉取。此方式适合多服务器或频繁发布，但需要安全管理仓库凭据和镜像保留策略。
 
-### 15.2 服务器源码构建
+### 15.2 服务器源码一键构建与更新
 
-可以在 Debian 服务器克隆源码后构建，但这会占用大量 CPU、内存、磁盘和网络，并可能遇到 Debian/npm 源问题。生产单服务器默认不采用该方式。
+如果明确选择“服务器从 GitHub 拉取源码并本地构建镜像”，项目固定放在 `/opt/vozeb-pro`，生产分支固定为 `main_yao_20260820`。首次部署且该目录尚不存在时执行：
+
+```bash
+apt-get update
+apt-get install -y git curl util-linux
+git clone --branch main_yao_20260820 --single-branch \
+  https://github.com/yaoke602/VOZEB-PRO.git \
+  /opt/vozeb-pro
+cd /opt/vozeb-pro
+```
+
+把已经准备好的生产 `.env` 安全地放到 `/opt/vozeb-pro/.env`，再限制权限。不要从 Git 提交或命令输出中复制密钥：
+
+```bash
+chmod 600 /opt/vozeb-pro/.env
+cd /opt/vozeb-pro
+docker compose config --quiet
+```
+
+先执行只读检查，再执行第一次部署：
+
+```bash
+git branch --show-current
+git remote -v
+sudo ./scripts/deploy-debian.sh --dry-run
+sudo ./scripts/deploy-debian.sh
+```
+
+日常更新仍然只执行：
+
+```bash
+cd /opt/vozeb-pro
+sudo ./scripts/deploy-debian.sh
+```
+
+脚本会从 `origin/main_yao_20260820` 快进到最新提交，在服务器本地构建 `vozeb-pro:<VERSION>-<Git SHA>`，完成 PostgreSQL 与配置备份，然后依次更新 App 和 Worker。应用切换使用 `--pull never`，不会下载 VOZEB PRO 应用镜像。
+
+服务器第一次构建仍可能下载 Dockerfile 的 Node 基础镜像、Debian/npm 构建依赖；第一次创建数据库服务也需要取得 `postgres:16.6-alpine`。这些是应用的构建基础和独立数据库镜像，不是从远程下载 VOZEB PRO 成品镜像。后续构建会尽量复用 Docker 缓存。
+
+如果 `VERSION` 改变，先阅读 `CHANGELOG.md`、README 和对应版本说明。确认数据库支持原地升级后才执行：
+
+```bash
+sudo ./scripts/deploy-debian.sh --allow-version-change
+```
+
+服务器重启不会拉取 GitHub 最新代码；Compose 的 `restart: unless-stopped` 会恢复上一次验证通过的镜像。发布日志位于 `/var/log/vozeb-pro-deploy.log`，升级备份位于 `/opt/vozeb-pro/backups/`。
+
+```bash
+tail -n 200 /var/log/vozeb-pro-deploy.log
+docker compose ps
+docker compose logs --tail 100 app generation-worker
+```
+
+脚本的自动回滚只切换应用镜像。如果新版本执行了不兼容 Schema 变化，必须使用第十二节的数据库、媒体、`.env` 和旧镜像成套恢复流程。
 
 ## 十六、部署完成记录
 
