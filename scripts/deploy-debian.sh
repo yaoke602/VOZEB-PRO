@@ -141,6 +141,130 @@ build_target_image() {
     docker image inspect "$TARGET_IMAGE" >/dev/null
 }
 
+wait_for_service_health() {
+    local service="$1" timeout_seconds="$2" deadline container_id status
+    deadline=$((SECONDS + timeout_seconds))
+    while ((SECONDS < deadline)); do
+        container_id="$(docker compose ps -q "$service")"
+        if [[ -n "$container_id" ]]; then
+            status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id" 2>/dev/null || true)"
+            if [[ "$status" == "healthy" || "$status" == "running" ]]; then
+                return 0
+            fi
+            [[ "$status" != "unhealthy" && "$status" != "exited" && "$status" != "dead" ]] || return 1
+        fi
+        sleep 3
+    done
+    return 1
+}
+
+wait_for_http() {
+    local path="$1" timeout_seconds="$2" deadline
+    deadline=$((SECONDS + timeout_seconds))
+    while ((SECONDS < deadline)); do
+        if curl --fail --silent --show-error --max-time 10 "http://127.0.0.1:3000${path}" >/dev/null; then
+            return 0
+        fi
+        sleep 3
+    done
+    return 1
+}
+
+ensure_postgres_running() {
+    if [[ -n "$(docker compose ps -a -q postgres)" ]]; then
+        docker compose start postgres
+    else
+        docker compose up -d postgres
+    fi
+    wait_for_service_health postgres 120 || die "PostgreSQL did not become healthy"
+}
+
+ensure_current_services() {
+    docker compose up -d --pull never
+    wait_for_service_health postgres 120 || die "PostgreSQL did not become healthy"
+    wait_for_service_health app 180 || die "App did not become healthy"
+    wait_for_http /api/health/live 60 || die "Live health endpoint failed"
+    wait_for_http /api/health/ready 60 || die "Ready health endpoint failed"
+    docker compose ps
+}
+
+create_backup() {
+    local stamp
+    stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+    BACKUP_DIR="${BACKUP_ROOT}/${stamp}"
+    install -d -m 700 "$BACKUP_DIR"
+    ensure_postgres_running
+    docker compose exec -T postgres sh -c 'pg_dump --format=custom --create -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > "$BACKUP_DIR/postgres.dump"
+    test -s "$BACKUP_DIR/postgres.dump" || die "PostgreSQL backup is empty"
+    cp --preserve=mode .env "$BACKUP_DIR/.env"
+    cp VERSION CHANGELOG.md docker-compose.yml "$BACKUP_DIR/"
+    git show "${OLD_COMMIT}:docker-compose.yml" > "$BACKUP_DIR/docker-compose.previous.yml"
+    {
+        printf 'OLD_COMMIT=%s\n' "$OLD_COMMIT"
+        printf 'TARGET_COMMIT=%s\n' "$TARGET_COMMIT"
+        printf 'OLD_IMAGE=%s\n' "$OLD_IMAGE"
+        printf 'TARGET_IMAGE=%s\n' "$TARGET_IMAGE"
+        docker inspect vozeb-pro --format 'OLD_CONTAINER_IMAGE_ID={{.Image}}' 2>/dev/null || true
+    } > "$BACKUP_DIR/deployment.txt"
+    (
+        cd "$BACKUP_DIR"
+        sha256sum postgres.dump .env VERSION CHANGELOG.md docker-compose.yml docker-compose.previous.yml deployment.txt > SHA256SUMS
+    )
+    chmod 600 "$BACKUP_DIR/.env" "$BACKUP_DIR/postgres.dump" "$BACKUP_DIR/deployment.txt" "$BACKUP_DIR/SHA256SUMS"
+    log "Verified backup: ${BACKUP_DIR}"
+}
+
+set_image_in_env() {
+    local image="$1" temp_env
+    temp_env="$(mktemp "${PROJECT_ROOT}/.env.deploy.XXXXXX")"
+    awk -v image="$image" '
+        BEGIN { written=0 }
+        /^VOZEB_PRO_IMAGE=/ {
+            if (!written) print "VOZEB_PRO_IMAGE=" image
+            written=1
+            next
+        }
+        { print }
+        END { if (!written) print "VOZEB_PRO_IMAGE=" image }
+    ' .env > "$temp_env"
+    chmod --reference=.env "$temp_env"
+    if ! docker compose --env-file "$temp_env" config --quiet; then
+        rm -f "$temp_env"
+        die "Candidate .env does not produce a valid Compose configuration"
+    fi
+    mv -f "$temp_env" .env
+    [[ "$(read_env_value VOZEB_PRO_IMAGE)" == "$image" ]] || die "Failed to update VOZEB_PRO_IMAGE"
+}
+
+rollback_deployment() {
+    log "Restoring previous image configuration ${OLD_IMAGE}"
+    cp --preserve=mode "$BACKUP_DIR/.env" .env
+    docker compose config --quiet || return 1
+    docker compose up -d --pull never --no-deps --force-recreate app || return 1
+    wait_for_service_health app 180 || return 1
+    wait_for_http /api/health/live 60 || return 1
+    wait_for_http /api/health/ready 60 || return 1
+    docker compose up -d --pull never --no-deps --force-recreate generation-worker || return 1
+    log "Previous App and Worker image restored"
+}
+
+deploy_target() {
+    local failed=0
+    set_image_in_env "$TARGET_IMAGE"
+    docker compose up -d --pull never --no-deps --force-recreate app || failed=1
+    if ((failed == 0)); then wait_for_service_health app 180 || failed=1; fi
+    if ((failed == 0)); then wait_for_http /api/health/live 60 || failed=1; fi
+    if ((failed == 0)); then wait_for_http /api/health/ready 60 || failed=1; fi
+    if ((failed == 0)); then docker compose up -d --pull never --no-deps --force-recreate generation-worker || failed=1; fi
+    if ((failed == 0)); then wait_for_service_health generation-worker 60 || failed=1; fi
+    if ((failed != 0)); then
+        log "New deployment failed; attempting image rollback"
+        rollback_deployment || die "Automatic rollback failed; use ${BACKUP_DIR} and DEPLOY-GUIDE.md for manual recovery"
+        die "New deployment failed and the previous image was restored"
+    fi
+    docker compose ps
+}
+
 main() {
     parse_args "$@"
     if ((DRY_RUN == 0)); then

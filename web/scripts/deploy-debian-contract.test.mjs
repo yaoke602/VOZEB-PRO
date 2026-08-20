@@ -52,4 +52,25 @@ describe("Debian source deployment contract", () => {
         expect(source).toContain("DEBIAN_MIRROR=http://mirrors.aliyun.com/debian");
         expect(source).toContain("DEBIAN_SECURITY_MIRROR=http://mirrors.aliyun.com/debian-security");
     });
+
+    it("backs up PostgreSQL and production configuration before switching images", () => {
+        const source = scriptSource();
+        expect(source).toContain("pg_dump --format=custom --create");
+        expect(source).toContain('cp --preserve=mode .env "$BACKUP_DIR/.env"');
+        expect(source).toContain("sha256sum");
+        expect(source).toContain('test -s "$BACKUP_DIR/postgres.dump"');
+    });
+
+    it("updates App before Worker, verifies both health endpoints, and can restore the old image", () => {
+        const source = scriptSource();
+        const appSwitch = source.indexOf("--force-recreate app");
+        const workerSwitch = source.indexOf("--force-recreate generation-worker");
+        expect(appSwitch).toBeGreaterThan(-1);
+        expect(workerSwitch).toBeGreaterThan(appSwitch);
+        expect(source).toContain("--pull never");
+        expect(source).toContain("/api/health/live");
+        expect(source).toContain("/api/health/ready");
+        expect(source).toContain("rollback_deployment");
+        expect(source).toContain('cp --preserve=mode "$BACKUP_DIR/.env" .env');
+    });
 });
