@@ -3,6 +3,7 @@ import { isRemoteMediaUrl } from "@/lib/browser-media-url";
 import { writeReferenceImageDataUrl } from "@/lib/server/reference-asset-store";
 import { createSignedReferenceAssetUrl, signReferenceAssetInputUrl } from "@/lib/server/reference-asset-access";
 import { resolvePublicRequestOrigin } from "@/lib/server/public-request-origin";
+import { publicGenerationAssetInputUrl } from "@/lib/server/generation-asset-access";
 
 export function referenceRequestUrl(reference: ImageTaskReference, origin = "") {
     return referenceRequestUrlCandidates(reference, origin)[0] || "";
@@ -15,7 +16,9 @@ export function jsonImageReferenceRequestUrl(reference: ImageTaskReference, orig
 }
 
 export async function publicImageReferenceRequestUrl(reference: ImageTaskReference, origin: string, publicOrigin: string, context: { ownerUserId: string; taskId: string }) {
-    const candidates = referenceRequestUrlCandidates(reference, origin).filter((value) => isExternalPublicMediaUrl(value));
+    const candidates = referenceRequestUrlCandidates(reference, origin)
+        .map((value) => publicGenerationAssetInputUrl(value, publicOrigin))
+        .filter((value) => isExternalPublicMediaUrl(value));
     if (candidates.length) return candidates[0];
     const localCandidate = referenceRequestUrlCandidates(reference, origin).find((value) => /\/api\/reference-assets\//.test(value));
     if (localCandidate) {

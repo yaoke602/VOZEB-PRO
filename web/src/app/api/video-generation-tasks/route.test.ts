@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
     after: vi.fn(),
@@ -99,6 +99,8 @@ describe("video generation candidate failover", () => {
         mocks.claimVideoTaskPoll.mockImplementation(async () => storedTask);
         mocks.after.mockImplementation(() => undefined);
     });
+
+    afterEach(() => vi.unstubAllEnvs());
 
     it("tries the next binding after explicit route failures", async () => {
         const startedAt = Date.now();
@@ -698,6 +700,18 @@ describe("video generation candidate failover", () => {
         expect(response.status).toBe(400);
         expect((await response.json()).error).toContain("站内参考素材");
         expect(mocks.fetchInternalApi).not.toHaveBeenCalled();
+    });
+
+    it("converts a generation asset reference to the configured public site URL", async () => {
+        vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://aigc.mutangtech.com");
+        mocks.getAuthSettings.mockResolvedValue(publicUrlCompatibleSettings());
+        mocks.fetchInternalApi.mockResolvedValue(json({ id: "public-generation-reference", status: "queued" }));
+
+        const response = await POST(request({ model: "video" }, [{ type: "image", url: "/api/generation-log-assets/permanent/2026/08/20/images/reference.png" }]));
+        const [, init] = mocks.fetchInternalApi.mock.calls[0] as [string, RequestInit];
+
+        expect(response.status).toBe(200);
+        expect(String(init.body)).toContain("https://aigc.mutangtech.com/api/generation-log-assets/permanent/2026/08/20/images/reference.png");
     });
 
     it("returns 400 for malformed JSON", async () => {

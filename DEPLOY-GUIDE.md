@@ -733,6 +733,33 @@ docker compose logs --tail 200 generation-worker
 
 随后使用真实生产账号验证登录、管理员页面、文本任务和已启用的图片/视频/音频能力。若涉及支付、对象存储或 Schema 变化，还要执行对应专项验收。
 
+### 11.6 验证生成媒体公网访问
+
+图片、视频和 Agent 使用站内参考素材调用外部模型时，应用会从 `.env` 的 `NEXT_PUBLIC_SITE_URL` 读取公网域名，并将 `/api/generation-log-assets/**` 转为完整 URL。例如：
+
+```env
+NEXT_PUBLIC_SITE_URL=https://aigc.mutangtech.com
+```
+
+```text
+/api/generation-log-assets/permanent/2026/08/20/images/example.png
+→ https://aigc.mutangtech.com/api/generation-log-assets/permanent/2026/08/20/images/example.png
+```
+
+该资源路由允许匿名 `GET` 和 `HEAD`，不再要求登录；路径校验、公共媒体限流、并发保护、安全响应头和原文件名下载仍然生效。任何获得完整 URL 的人都可以在文件删除前访问它，因此不要把 URL 当作访问凭证，也不要在公开日志或不可信页面中主动暴露不需要分享的链接。
+
+外部 S3/OSS Bucket 可以继续保持私有。应用会先接收上述稳定站内 URL，再以短期签名地址跳转到对象存储；此改动不会公开对象列表、删除接口、后台管理接口或 Bucket 本身。
+
+部署后任选一条真实媒体链接，在无痕窗口或服务器外部执行：
+
+```bash
+MEDIA_URL='https://aigc.mutangtech.com/api/generation-log-assets/permanent/替换为真实路径'
+curl --head "$MEDIA_URL"
+curl --fail --location --output /dev/null "$MEDIA_URL"
+```
+
+预期不返回 `401` 或 `403`。使用私有对象存储时允许先返回 `307`，`curl --location` 应能继续取得最终媒体。随后分别用一张站内图片完成真实图生图，并在已启用视频渠道时完成一次参考图生视频，确认供应商能够拉取该公网 URL。
+
 ## 十二、回滚
 
 ### 12.1 仅回滚镜像

@@ -1,14 +1,12 @@
 import { resolve, sep } from "node:path";
 import { NextResponse } from "next/server";
 
-import { getCurrentUser } from "@/lib/auth/session";
 import { getServerDataDir } from "@/lib/server/data-dir";
-import { canAccessGenerationAsset } from "@/lib/server/generation-log-store";
 import { createLocalMediaResponse, createMediaHeadResponse, mediaContentDisposition } from "@/lib/server/local-media-response";
 import { getLocalMediaRegistration } from "@/lib/server/local-media-registry";
 import { acquireMediaConcurrency, withMediaConcurrency } from "@/lib/server/media-concurrency";
 import { createExternalMediaReadUrl } from "@/lib/server/object-storage-service";
-import { checkLocalMediaRateLimit, rateLimitHeaders } from "@/lib/server/security";
+import { checkPublicMediaRateLimit, rateLimitHeaders } from "@/lib/server/security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,27 +24,24 @@ export async function HEAD(request: Request, context: RouteContext) {
 }
 
 async function serveGenerationAsset(request: Request, context: RouteContext) {
-    const currentUser = await getCurrentUser();
-    if (!currentUser) return NextResponse.json({ error: "请先登录" }, { status: 401 });
-
     const { path } = await context.params;
-    const rate = await checkLocalMediaRateLimit(`user:${currentUser.id}`, request);
-    if (!rate.allowed) return NextResponse.json({ error: "媒体访问过于频繁，请稍后重试" }, { status: 429, headers: rateLimitHeaders(rate) });
     const root = resolve(getServerDataDir(), "generation-assets");
     const filePath = resolve(root, ...(path || []));
     const downloadOriginal = new URL(request.url).searchParams.get("download") === "original";
     if (!isInsideRoot(filePath, root)) return NextResponse.json({ error: "资源不存在" }, { status: 404 });
     const assetUrl = `/api/generation-log-assets/${(path || []).join("/")}`;
-    if (!(await canAccessGenerationAsset(currentUser.id, currentUser.role, assetUrl))) return NextResponse.json({ error: "资源不存在" }, { status: 404 });
+    const rate = await checkPublicMediaRateLimit(assetUrl, request);
+    if (!rate.allowed) return NextResponse.json({ error: "媒体访问过于频繁，请稍后重试" }, { status: 429, headers: rateLimitHeaders(rate) });
 
     const registration = await getLocalMediaRegistration((path || []).join("/"));
+    if (registration && registration.scope !== "generation") return NextResponse.json({ error: "资源不存在" }, { status: 404 });
     if (request.method === "HEAD" && registration?.storageProvider === "object") {
         return createMediaHeadResponse(registration.mimeType, registration.bytes, {
             "Cache-Control": "private, max-age=3600",
             "Content-Disposition": mediaContentDisposition(downloadOriginal ? "attachment" : "inline", registration.originalName || path.at(-1) || "media", registration.mimeType, downloadOriginal ? registration.storageKey || path.join("/") : ""),
         });
     }
-    const permit = acquireMediaConcurrency("local", `user:${currentUser.id}`);
+    const permit = acquireMediaConcurrency("public", assetUrl);
     if (!permit) return NextResponse.json({ error: "媒体并发访问过多，请稍后重试" }, { status: 429, headers: { "Retry-After": "2" } });
     if (registration?.storageProvider === "object") {
         try {

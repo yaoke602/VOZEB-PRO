@@ -27,6 +27,7 @@ import { assertGeminiVideoReferences, buildGeminiVideoRequest, geminiVideoCreate
 import { systemAiBillingHeaders } from "@/lib/server/system-ai-billing";
 import { maintenanceWorkerContextHeaders, requestRuntimeCredential } from "@/lib/server/maintenance-auth";
 import { resolvePublicRequestOrigin } from "@/lib/server/public-request-origin";
+import { publicGenerationAssetInputUrl } from "@/lib/server/generation-asset-access";
 import { writeVideoGenerationLog } from "@/lib/server/video-task-log";
 import { buildOpenAiVideoFormData } from "./video-task-openai";
 import { normalizeVideoGenerationReferences, regularVideoReferences, videoFrameReferences, type VideoGenerationReference } from "@/lib/video-reference-contract";
@@ -67,7 +68,10 @@ export async function POST(request: Request) {
         const publicOrigin = requestPublicOrigin(request);
         let references: VideoGenerationReference[];
         try {
-            references = normalizeVideoGenerationReferences(body.references).map((reference) => ({ ...reference, url: signReferenceAssetInputUrl(reference.url, publicOrigin) }));
+            references = normalizeVideoGenerationReferences(body.references).map((reference) => ({
+                ...reference,
+                url: publicGenerationAssetInputUrl(signReferenceAssetInputUrl(reference.url, publicOrigin), publicOrigin),
+            }));
         } catch (error) {
             return NextResponse.json({ error: error instanceof Error ? error.message : "视频参考素材不正确" }, { status: 400 });
         }
