@@ -746,7 +746,7 @@ NEXT_PUBLIC_SITE_URL=https://aigc.mutangtech.com
 → https://aigc.mutangtech.com/api/generation-log-assets/permanent/2026/08/20/images/example.png
 ```
 
-该资源路由允许匿名 `GET` 和 `HEAD`，不再要求登录；路径校验、公共媒体限流、并发保护、安全响应头和原文件名下载仍然生效。任何获得完整 URL 的人都可以在文件删除前访问它，因此不要把 URL 当作访问凭证，也不要在公开日志或不可信页面中主动暴露不需要分享的链接。
+生成媒体 `/api/generation-log-assets/**` 和参考素材 `/api/reference-assets/**` 都允许匿名 `GET` 和 `HEAD`，不再要求登录；路径校验、Scope 隔离、公共媒体限流、并发保护、安全响应头和原文件名下载仍然生效。任何获得完整 URL 的人都可以在文件删除前访问它；临时参考素材仍会按原到期规则清理。不要把 URL 当作访问凭证，也不要在公开日志或不可信页面中主动暴露不需要分享的链接。
 
 外部 S3/OSS Bucket 可以继续保持私有。应用会先接收上述稳定站内 URL，再以短期签名地址跳转到对象存储；此改动不会公开对象列表、删除接口、后台管理接口或 Bucket 本身。
 

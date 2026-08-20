@@ -1,13 +1,11 @@
 import { NextResponse } from "next/server";
 
-import { getCurrentUser } from "@/lib/auth/session";
 import { acquireMediaConcurrency, withMediaConcurrency } from "@/lib/server/media-concurrency";
-import { verifyReferenceAssetSignature } from "@/lib/server/reference-asset-access";
 import { createLocalMediaResponse, createMediaHeadResponse, mediaContentDisposition } from "@/lib/server/local-media-response";
 import { getLocalMediaRegistration } from "@/lib/server/local-media-registry";
 import { createExternalMediaReadUrl } from "@/lib/server/object-storage-service";
 import { isReferenceAssetPath, readReferenceAsset } from "@/lib/server/reference-asset-store";
-import { checkLocalMediaRateLimit, rateLimitHeaders } from "@/lib/server/security";
+import { checkPublicMediaRateLimit, rateLimitHeaders } from "@/lib/server/security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,21 +27,12 @@ async function serveReferenceAsset(request: Request, context: RouteContext) {
     const storagePath = path.join("/");
     if (!isReferenceAssetPath(storagePath)) return NextResponse.json({ error: "媒体文件不存在或已过期" }, { status: 404 });
     const url = new URL(request.url);
-    const signature = url.searchParams.get("signature") || "";
-    const signed = verifyReferenceAssetSignature(storagePath, url.searchParams.get("purpose"), url.searchParams.get("expires"), signature);
-    if (signed && url.searchParams.get("download") === "original") return NextResponse.json({ code: 403, data: null, msg: "上游读取签名不提供原件下载" }, { status: 403 });
-    let rateIdentity = `signature:${signature}`;
-    let currentUser: Awaited<ReturnType<typeof getCurrentUser>> = null;
-    if (!signed) {
-        currentUser = await getCurrentUser();
-        if (!currentUser) return NextResponse.json({ code: 401, data: null, msg: "请先登录" }, { status: 401 });
-        rateIdentity = `user:${currentUser.id}`;
-    }
-    const rate = await checkLocalMediaRateLimit(rateIdentity, request);
+    const assetUrl = `/api/reference-assets/${storagePath}`;
+    const rate = await checkPublicMediaRateLimit(assetUrl, request);
     if (!rate.allowed) return NextResponse.json({ code: 429, data: null, msg: "媒体访问过于频繁，请稍后重试" }, { status: 429, headers: rateLimitHeaders(rate) });
     const registration = await getLocalMediaRegistration(storagePath);
-    if (!registration) return NextResponse.json({ error: "媒体文件不存在或已过期" }, { status: 404 });
-    if (currentUser && currentUser.role !== "admin" && registration.ownerUserId !== currentUser.id) return NextResponse.json({ code: 404, data: null, msg: "媒体文件不存在" }, { status: 404 });
+    if (!registration || registration.scope !== "reference") return NextResponse.json({ error: "媒体文件不存在或已过期" }, { status: 404 });
+    if (registration.expiresAt && Date.parse(registration.expiresAt) <= Date.now()) return NextResponse.json({ error: "媒体文件不存在或已过期" }, { status: 404 });
     if (request.method === "HEAD" && registration.storageProvider === "object") {
         return createMediaHeadResponse(registration.mimeType, registration.bytes, {
             "Cache-Control": storagePath.startsWith("permanent/") ? "private, max-age=86400" : "private, max-age=300",
@@ -56,7 +45,7 @@ async function serveReferenceAsset(request: Request, context: RouteContext) {
         });
     }
 
-    const permit = acquireMediaConcurrency("local", rateIdentity);
+    const permit = acquireMediaConcurrency("public", assetUrl);
     if (!permit) return NextResponse.json({ code: 429, data: null, msg: "媒体并发访问过多，请稍后重试" }, { status: 429, headers: { "Retry-After": "2" } });
     if (registration.storageProvider === "object") {
         try {

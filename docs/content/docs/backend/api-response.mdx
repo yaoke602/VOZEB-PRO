@@ -83,7 +83,7 @@ description: 当前接口响应事实与管理员敏感配置契约
 
 ## 媒体访问保护
 
-- `GET/HEAD /api/reference-assets/{path}` 要求当前用户拥有媒体、管理员身份，或携带绑定资源、`provider-read` 用途和过期时间的短期 HMAC。上游签名不能追加 `download=original` 变成匿名原件下载。
+- `GET/HEAD /api/reference-assets/{path}` 对已登记且 Scope 为 `reference` 的媒体允许匿名读取与 `download=original`；旧的 `purpose/expires/signature` 参数继续兼容但不再是访问条件。上传、列表、删除与后台管理接口仍要求相应身份和权限。
 - `GET/HEAD /api/generation-log-assets/{path}` 要求当前用户确实能从自己的生成记录访问该资源；跨用户和不存在资源统一隐藏为 404。
 - 本地媒体只接受单段 `bytes` Range；多段或非法 Range 返回 416，开放、后缀或显式超大 Range 每次最多返回 32 MiB，并通过 `Content-Range` 让播放器继续读取。媒体代理也会把 Range 规范到相同上限，上游忽略 Range 时仍受响应字节上限约束。
 - 本地原件返回弱 ETag、Last-Modified 和条件 304；图片 WebP 变体保留有限宽度与 ETag。HEAD 不创建本地文件流；对象存储 HEAD 不会把签名为 GET 的临时地址错误用于 HEAD。

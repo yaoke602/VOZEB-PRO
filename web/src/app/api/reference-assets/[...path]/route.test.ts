@@ -1,8 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-    getCurrentUser: vi.fn(),
-    verify: vi.fn(),
     registration: vi.fn(),
     read: vi.fn(),
     isValidPath: vi.fn(),
@@ -16,8 +14,6 @@ const mocks = vi.hoisted(() => ({
     release: vi.fn(),
 }));
 
-vi.mock("@/lib/auth/session", () => ({ getCurrentUser: mocks.getCurrentUser }));
-vi.mock("@/lib/server/reference-asset-access", () => ({ verifyReferenceAssetSignature: mocks.verify }));
 vi.mock("@/lib/server/local-media-registry", () => ({ getLocalMediaRegistration: mocks.registration }));
 vi.mock("@/lib/server/reference-asset-store", () => ({ isReferenceAssetPath: mocks.isValidPath, readReferenceAsset: mocks.read }));
 vi.mock("@/lib/server/local-media-response", () => ({
@@ -26,21 +22,21 @@ vi.mock("@/lib/server/local-media-response", () => ({
     mediaContentDisposition: mocks.disposition,
 }));
 vi.mock("@/lib/server/media-concurrency", () => ({ acquireMediaConcurrency: mocks.acquire, withMediaConcurrency: mocks.wrap }));
-vi.mock("@/lib/server/security", () => ({ checkLocalMediaRateLimit: mocks.rate, rateLimitHeaders: vi.fn(() => ({ "Retry-After": "60" })) }));
+vi.mock("@/lib/server/security", () => ({ checkPublicMediaRateLimit: mocks.rate, rateLimitHeaders: vi.fn(() => ({ "Retry-After": "60" })) }));
 vi.mock("@/lib/server/object-storage-service", () => ({ createExternalMediaReadUrl: mocks.externalRead }));
 
 import { GET, HEAD } from "./route";
 
 const context = { params: Promise.resolve({ path: ["permanent", "2026", "07", "20", "images", "file.png"] }) };
+const assetUrl = "/api/reference-assets/permanent/2026/07/20/images/file.png";
 
-describe("reference asset access", () => {
+describe("public reference asset access", () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.verify.mockReturnValue(false);
         mocks.isValidPath.mockReturnValue(true);
-        mocks.read.mockResolvedValue({ filePath: "asset.png", size: 5, mimeType: "image/png", registration: { ownerUserId: "owner" } });
+        mocks.read.mockResolvedValue({ filePath: "asset.png", size: 5, mimeType: "image/png" });
         mocks.stream.mockResolvedValue(new Response("image"));
-        mocks.registration.mockResolvedValue({ ownerUserId: "owner", mimeType: "image/png" });
+        mocks.registration.mockResolvedValue({ scope: "reference", ownerUserId: "owner", mimeType: "image/png" });
         mocks.disposition.mockReturnValue('inline; filename="file.png"');
         mocks.rate.mockResolvedValue({ allowed: true, remaining: 239, resetAt: Date.now() + 60_000 });
         mocks.externalRead.mockResolvedValue("https://storage.example/signed");
@@ -49,66 +45,62 @@ describe("reference asset access", () => {
         mocks.head.mockReturnValue(new Response(null, { status: 200, headers: { "Content-Type": "image/png", "Content-Length": "5" } }));
     });
 
-    it("does not expose another user's media to an authenticated user", async () => {
-        mocks.getCurrentUser.mockResolvedValue({ id: "other", role: "user" });
-        const response = await GET(new Request("http://localhost/api/reference-assets/permanent/2026/07/20/images/file.png"), context);
-        expect(response.status).toBe(404);
-        expect(mocks.read).not.toHaveBeenCalled();
-    });
-
-    it("rejects malformed paths without querying authentication or media registrations", async () => {
+    it("rejects malformed paths before rate limiting or registration lookup", async () => {
         mocks.isValidPath.mockReturnValue(false);
         const response = await GET(new Request("http://localhost/api/reference-assets/not-valid"), { params: Promise.resolve({ path: ["not-valid"] }) });
         expect(response.status).toBe(404);
-        expect(mocks.getCurrentUser).not.toHaveBeenCalled();
         expect(mocks.rate).not.toHaveBeenCalled();
         expect(mocks.registration).not.toHaveBeenCalled();
     });
 
-    it("rejects anonymous unsigned access before querying media registrations", async () => {
-        mocks.getCurrentUser.mockResolvedValue(null);
-        const response = await GET(new Request("http://localhost/api/reference-assets/permanent/2026/07/20/images/file.png"), context);
-        expect(response.status).toBe(401);
-        expect(mocks.rate).not.toHaveBeenCalled();
-        expect(mocks.registration).not.toHaveBeenCalled();
-    });
-
-    it("allows the owner and administrators to read registered media", async () => {
-        mocks.getCurrentUser.mockResolvedValue({ id: "owner", role: "user" });
-        expect((await GET(new Request("http://localhost/api/reference-assets/permanent/2026/07/20/images/file.png"), context)).status).toBe(200);
-        expect(mocks.disposition).toHaveBeenCalledWith("inline", "file.png", "image/png", "");
-        mocks.getCurrentUser.mockResolvedValue({ id: "admin", role: "admin" });
-        expect((await GET(new Request("http://localhost/api/reference-assets/permanent/2026/07/20/images/file.png"), context)).status).toBe(200);
-    });
-
-    it("allows a valid short-lived signature without a login", async () => {
-        mocks.verify.mockReturnValue(true);
-        mocks.getCurrentUser.mockResolvedValue(null);
-        const response = await GET(new Request("http://localhost/api/reference-assets/permanent/2026/07/20/images/file.png?purpose=provider-read&expires=1&signature=test"), context);
+    it("streams registered reference media without a login session", async () => {
+        const response = await GET(new Request(`http://localhost${assetUrl}`), context);
         expect(response.status).toBe(200);
-        expect(mocks.getCurrentUser).not.toHaveBeenCalled();
-        expect(mocks.rate.mock.invocationCallOrder[0]).toBeLessThan(mocks.registration.mock.invocationCallOrder[0]);
+        expect(mocks.rate).toHaveBeenCalledWith(assetUrl, expect.any(Request));
+        expect(mocks.acquire).toHaveBeenCalledWith("public", assetUrl);
+        expect(mocks.disposition).toHaveBeenCalledWith("inline", "file.png", "image/png", "");
+        expect(mocks.stream).toHaveBeenCalled();
     });
 
-    it("does not allow an upstream signature to become an anonymous original download", async () => {
-        mocks.verify.mockReturnValue(true);
-        const response = await GET(new Request("http://localhost/api/reference-assets/permanent/2026/07/20/images/file.png?purpose=provider-read&expires=1&signature=test&download=original"), context);
-        expect(response.status).toBe(403);
-        expect(mocks.registration).not.toHaveBeenCalled();
+    it("continues to accept legacy signed query parameters without requiring them", async () => {
+        const response = await GET(new Request(`http://localhost${assetUrl}?purpose=provider-read&expires=1&signature=legacy`), context);
+        expect(response.status).toBe(200);
+        expect(mocks.rate).toHaveBeenCalledWith(assetUrl, expect.any(Request));
     });
 
-    it("does not expose an unregistered file through a signed url", async () => {
-        mocks.verify.mockReturnValue(true);
+    it("does not expose a generation registration through the reference route", async () => {
+        mocks.registration.mockResolvedValue({ scope: "generation", storageProvider: "object", externalObjectKey: "bucket/generation.png" });
+        const getResponse = await GET(new Request(`http://localhost${assetUrl}`), context);
+        const headResponse = await HEAD(new Request(`http://localhost${assetUrl}`, { method: "HEAD" }), context);
+        expect(getResponse.status).toBe(404);
+        expect(headResponse.status).toBe(404);
+        expect(mocks.externalRead).not.toHaveBeenCalled();
+        expect(mocks.head).not.toHaveBeenCalled();
+        expect(mocks.stream).not.toHaveBeenCalled();
+    });
+
+    it("does not expose an unregistered file", async () => {
         mocks.registration.mockResolvedValue(null);
-        const response = await GET(new Request("http://localhost/api/reference-assets/permanent/2026/07/20/images/file.png?expires=1&signature=test"), context);
+        const response = await GET(new Request(`http://localhost${assetUrl}`), context);
         expect(response.status).toBe(404);
         expect(mocks.stream).not.toHaveBeenCalled();
     });
 
-    it("redirects an authorized object-backed asset to a signed url", async () => {
-        mocks.getCurrentUser.mockResolvedValue({ id: "owner", role: "user" });
-        mocks.registration.mockResolvedValue({ ownerUserId: "owner", storageProvider: "object", externalObjectKey: "bucket/file.png" });
-        const response = await GET(new Request("http://localhost/api/reference-assets/permanent/2026/07/20/images/file.png"), context);
+    it("does not expose expired temporary media through local or object GET/HEAD paths", async () => {
+        mocks.registration.mockResolvedValue({ scope: "reference", storageProvider: "object", externalObjectKey: "bucket/expired.png", expiresAt: "2020-01-01T00:00:00.000Z" });
+        const getResponse = await GET(new Request(`http://localhost${assetUrl}`), context);
+        const headResponse = await HEAD(new Request(`http://localhost${assetUrl}`, { method: "HEAD" }), context);
+        expect(getResponse.status).toBe(404);
+        expect(headResponse.status).toBe(404);
+        expect(mocks.externalRead).not.toHaveBeenCalled();
+        expect(mocks.head).not.toHaveBeenCalled();
+        expect(mocks.read).not.toHaveBeenCalled();
+        expect(mocks.stream).not.toHaveBeenCalled();
+    });
+
+    it("redirects an object-backed reference to a short-lived object url", async () => {
+        mocks.registration.mockResolvedValue({ scope: "reference", ownerUserId: "owner", storageProvider: "object", externalObjectKey: "bucket/file.png" });
+        const response = await GET(new Request(`http://localhost${assetUrl}`), context);
         expect(response.status).toBe(307);
         expect(response.headers.get("location")).toBe("https://storage.example/signed");
         expect(response.headers.get("cache-control")).toBe("private, no-store");
@@ -117,36 +109,33 @@ describe("reference asset access", () => {
         expect(mocks.read).not.toHaveBeenCalled();
     });
 
-    it("answers object-backed HEAD from registration metadata without creating a GET signature", async () => {
-        mocks.getCurrentUser.mockResolvedValue({ id: "owner", role: "user" });
-        mocks.registration.mockResolvedValue({ ownerUserId: "owner", storageProvider: "object", mimeType: "image/png", bytes: 5, originalName: "file.png" });
-        const response = await HEAD(new Request("http://localhost/api/reference-assets/permanent/2026/07/20/images/file.png", { method: "HEAD" }), context);
+    it("answers object-backed HEAD without creating a GET signature", async () => {
+        mocks.registration.mockResolvedValue({ scope: "reference", ownerUserId: "owner", storageProvider: "object", mimeType: "image/png", bytes: 5, originalName: "file.png" });
+        const response = await HEAD(new Request(`http://localhost${assetUrl}`, { method: "HEAD" }), context);
         expect(response.status).toBe(200);
         expect(mocks.head).toHaveBeenCalled();
         expect(mocks.externalRead).not.toHaveBeenCalled();
         expect(mocks.acquire).not.toHaveBeenCalled();
     });
 
-    it("marks authenticated original HEAD downloads as attachments", async () => {
-        mocks.getCurrentUser.mockResolvedValue({ id: "owner", role: "user" });
-        mocks.registration.mockResolvedValue({ ownerUserId: "owner", storageProvider: "object", mimeType: "video/quicktime", bytes: 5, originalName: "generated-video" });
-        await HEAD(new Request("http://localhost/api/reference-assets/permanent/2026/07/20/images/file.png?download=original", { method: "HEAD" }), context);
+    it("allows anonymous original HEAD downloads", async () => {
+        mocks.registration.mockResolvedValue({ scope: "reference", ownerUserId: "owner", storageProvider: "object", mimeType: "video/quicktime", bytes: 5, originalName: "generated-video" });
+        await HEAD(new Request(`http://localhost${assetUrl}?download=original`, { method: "HEAD" }), context);
         expect(mocks.disposition).toHaveBeenCalledWith("attachment", "generated-video", "video/quicktime", "permanent/2026/07/20/images/file.png");
     });
 
-    it("rejects excess concurrent reads before opening local media", async () => {
-        mocks.getCurrentUser.mockResolvedValue({ id: "owner", role: "user" });
+    it("rejects excess public concurrency before opening local media", async () => {
         mocks.acquire.mockReturnValue(null);
-        const response = await GET(new Request("http://localhost/api/reference-assets/permanent/2026/07/20/images/file.png"), context);
+        const response = await GET(new Request(`http://localhost${assetUrl}`), context);
         expect(response.status).toBe(429);
         expect(mocks.read).not.toHaveBeenCalled();
     });
 
-    it("blocks repeated local media access before reading the file", async () => {
-        mocks.getCurrentUser.mockResolvedValue({ id: "owner", role: "user" });
+    it("rate limits public access before reading the registration", async () => {
         mocks.rate.mockResolvedValue({ allowed: false, remaining: 0, resetAt: Date.now() + 60_000 });
-        const response = await GET(new Request("http://localhost/api/reference-assets/permanent/2026/07/20/images/file.png"), context);
+        const response = await GET(new Request(`http://localhost${assetUrl}`), context);
         expect(response.status).toBe(429);
+        expect(mocks.registration).not.toHaveBeenCalled();
         expect(mocks.read).not.toHaveBeenCalled();
         expect(mocks.stream).not.toHaveBeenCalled();
     });
