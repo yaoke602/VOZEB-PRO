@@ -554,17 +554,28 @@ pnpm run build
 
 ## 社区交流
 
-<table>
-  <tr>
-    <td width="260"><a href="https://qm.qq.com/q/9MVLTxuRd6"><img src="docs/public/community/qq-vozeb-group-1049777515.webp" width="240" alt="VOZEB 开源交流 QQ 群二维码"></a></td>
-    <td>
-      <strong>VOZEB 开源交流</strong><br>
-      QQ 群：<code>1049777515</code> · <a href="https://qm.qq.com/q/9MVLTxuRd6">点击加入群聊</a><br><br>
-      欢迎交流部署、模型渠道适配、创作功能使用、Bug 复现和代码贡献。请勿在群内发送 API Key、数据库密码、支付密钥、服务器私钥或未经脱敏的生产日志。
-    </td>
-  </tr>
-</table>
+先在本地推送：
+cd F:\yaoaitest16\VOZEB-PRO
+git push origin main_yao_20260820
+腾讯云第一次更新脚本：
+cd /opt/vozeb-pro
 
-## 致谢
+git pull --ff-only origin main_yao_20260820
 
-- 感谢 [LINUX DO](https://linux.do) 社区、相关提示词开源仓库、Codex / Claude Code 生态，以及项目使用的所有开源工具与基础设施。
+sudo chown root:root .env
+sudo chmod 600 .env
+
+sudo ./scripts/deploy-debian.sh --dry-run
+sudo ./scripts/deploy-debian.sh
+以后每次发布最新代码只需要：
+cd /opt/vozeb-pro
+sudo ./scripts/deploy-debian.sh
+
+它会自动：
+1. 拉取代码
+2. 在服务器构建 vozeb-pro:<VERSION>-<提交号>
+3. 备份 PostgreSQL 和 .env
+4. 先更新 App，再更新 Worker
+5. 验证健康状态和 Worker 新心跳
+6. 失败时自动回滚
+7. 保留 PostgreSQL 和媒体数据卷
