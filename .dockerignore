@@ -4,6 +4,7 @@
 .codex
 .tmp
 .trellis
+backups
 data
 docs/.next
 docs/.source

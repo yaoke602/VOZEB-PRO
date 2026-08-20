@@ -8,6 +8,8 @@
 
 **Tech Stack:** Bash 5, Git, Docker Engine, Docker Compose v2, PostgreSQL 16.6 tools inside the database container, curl, util-linux `flock`, Node.js/Vitest contract tests, Debian 12
 
+> **Implementation status (2026-08-20):** The plan was executed, then hardened after production review. The final script additionally separates first-install status from readiness, verifies a new Worker heartbeat, fails closed on unknown deployed versions, gives forced rebuilds unique tags, rejects Compose topology changes, verifies persistent identities and `.env` permissions, and excludes `backups/` from the Docker context. Treat the committed script, behavior tests, design, and `DEPLOY-GUIDE.md` as the final source of truth rather than copying the incremental code snippets below.
+
 ---
 
 ## File map

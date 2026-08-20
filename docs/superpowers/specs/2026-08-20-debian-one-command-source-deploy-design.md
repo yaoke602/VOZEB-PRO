@@ -84,9 +84,9 @@ sudo ./scripts/deploy-debian.sh
 - 当前用户具有运行 Docker 和写入项目、备份目录的权限。
 - 当前目录解析结果是 `/opt/vozeb-pro`。
 - `git`、`docker`、Docker Compose、`curl` 和 `flock` 可用。
-- `.env` 存在、权限受控，并包含 Compose 要求的生产变量。
+- `.env` 是 root 拥有的普通文件、组和其他用户无权限，并包含 Compose 要求的生产变量；`COMPOSE_PROJECT_NAME` 固定为 `vozeb-pro`。
 - Git 当前分支为 `main_yao_20260820`，远端 `origin` 存在。
-- 已跟踪文件没有未提交修改；忽略的生产 `.env` 不参与该判断。
+- 已跟踪文件没有未提交修改，Docker 构建上下文也没有未跟踪文件；忽略的生产 `.env` 和 `backups/` 不参与该判断。
 - `docker compose config --quiet` 通过。
 - PostgreSQL 服务可以启动并达到健康状态。
 
@@ -96,13 +96,15 @@ sudo ./scripts/deploy-debian.sh
 
 脚本执行 `git fetch origin main_yao_20260820`，确认远端提交是当前提交的快进后继，再执行快进更新。禁止自动 merge、rebase、reset 或覆盖本地修改。
 
+如果目标提交修改了 `docker-compose.yml`，一键脚本在更新源码前停止。Compose 变化可能改变项目名、数据库服务或持久化卷，必须使用人工审查流程部署。
+
 如果远端提交与当前提交相同，并且 `.env` 已经指向该提交对应的本地镜像，默认不重复构建，只执行 Compose 状态与应用健康检查。如果源码已经更新、但上次执行在版本确认或构建阶段中止，脚本会继续完成尚未发布的目标镜像。维护者也可以使用 `--force-build` 强制重建。
 
 Git 更新只改变服务器上的源码目录；当前 App 和 Worker 仍运行旧镜像，不会因源码拉取或构建失败而停止。
 
 ### 5.3 版本兼容门禁
 
-脚本从 `VERSION` 读取目标版本，并从当前 `.env` 的 `VOZEB_PRO_IMAGE` 识别已部署版本。
+脚本从 `VERSION` 读取目标版本，优先从当前 App 容器的实际镜像引用识别已部署版本。它支持版本化仓库镜像和本项目的 `VERSION + Git SHA` 标签；存在 App/PostgreSQL 部署但无法识别版本时默认停止，只有明确审查后才能通过版本授权参数继续。
 
 当二者不同，默认停止并提示维护者阅读 `CHANGELOG.md`、README 和部署说明，确认数据库 Schema 是否支持原地升级。人工确认后使用：
 
@@ -131,6 +133,8 @@ vozeb-pro:v0.0.6-bfe52ee6d381
 脚本使用项目根目录的 `Dockerfile` 在服务器本地执行 `docker build`。国内网络使用项目已经支持的 Debian 镜像源构建参数。构建过程包含项目 Dockerfile 定义的依赖安装、类型检查、生产构建和运行库检查。
 
 构建失败时立即退出，不修改 `.env`，也不重建现有 App/Worker。PostgreSQL 与线上旧容器继续运行。
+
+普通构建使用 `VERSION + Git SHA` 标签并记录版本、完整提交号镜像标签。`--force-build` 使用额外的 UTC 时间与进程号后缀，禁止覆盖当前容器引用的回滚标签。`backups/` 同时从 Git 和 Docker 构建上下文排除，避免数据库备份和生产配置进入镜像构建输入。
 
 ### 5.5 切换前备份
 
@@ -163,13 +167,16 @@ vozeb-pro:v0.0.6-bfe52ee6d381
 
 切换顺序为：
 
-1. 保持 PostgreSQL 运行。
-2. 使用 `--pull never --no-deps --force-recreate` 只重建 App。
-3. 等待 Compose App 健康检查通过。
-4. 请求 `http://127.0.0.1:3000/api/health/live`。
-5. 请求 `http://127.0.0.1:3000/api/health/ready`，确认数据库和 Schema 就绪。
-6. 使用同一个新镜像重建 Generation Worker。
-7. 检查三个 Compose 服务状态并输出最近日志入口。
+1. 保持 PostgreSQL 运行，并记录 PostgreSQL 容器、数据库卷和已有媒体卷身份。
+2. 记录旧 Worker 心跳并停止旧 Worker。
+3. 使用 `--pull never --no-deps --force-recreate` 只重建 App。
+4. 等待 Compose App 健康检查并请求 `http://127.0.0.1:3000/api/health/live`。
+5. 请求 `/api/install/status`，区分已安装、等待初始化 Schema 和等待首个管理员三种状态。
+6. 使用同一个新镜像重建 Generation Worker，并要求进程持续稳定运行。
+7. 已初始化 Schema 时等待新 Worker 心跳；已完成安装时最后请求 `/api/health/ready`。
+8. 再次核对 PostgreSQL 容器和持久化卷身份，并输出三个服务状态。
+
+首次部署在 Schema 或管理员尚未初始化时不会错误回滚，而是明确报告安装待完成并给出 `/install` 地址。已安装环境只有在新 Worker 心跳和最终 readiness 都通过后才算成功。
 
 `--pull never` 保证 App 和 Worker 使用服务器刚构建的本地镜像，不从镜像仓库获取同名应用镜像。
 

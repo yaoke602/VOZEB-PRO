@@ -871,6 +871,7 @@ cd /opt/vozeb-pro
 把已经准备好的生产 `.env` 安全地放到 `/opt/vozeb-pro/.env`，再限制权限。不要从 Git 提交或命令输出中复制密钥：
 
 ```bash
+chown root:root /opt/vozeb-pro/.env
 chmod 600 /opt/vozeb-pro/.env
 cd /opt/vozeb-pro
 docker compose config --quiet
@@ -894,6 +895,14 @@ sudo ./scripts/deploy-debian.sh
 
 脚本会从 `origin/main_yao_20260820` 快进到最新提交，在服务器本地构建 `vozeb-pro:<VERSION>-<Git SHA>`，完成 PostgreSQL 与配置备份，然后依次更新 App 和 Worker。应用切换使用 `--pull never`，不会下载 VOZEB PRO 应用镜像。
 
+第一次部署还没有初始化 Schema 或创建管理员时，脚本会在 App 存活、PostgreSQL 可连接且 Worker 进程稳定后报告 `schema_pending` 或 `admin_pending`，此时打开：
+
+```text
+https://aigc.mutangtech.com/install
+```
+
+完成初始化后再次执行一键脚本或检查 `/api/health/ready`。已经安装的环境在更新时会停止旧 Worker，更新 App，再启动新 Worker；只有检测到新心跳且 `/api/health/ready` 成功才算发布完成。
+
 服务器第一次构建仍可能下载 Dockerfile 的 Node 基础镜像、Debian/npm 构建依赖；第一次创建数据库服务也需要取得 `postgres:16.6-alpine`。这些是应用的构建基础和独立数据库镜像，不是从远程下载 VOZEB PRO 成品镜像。后续构建会尽量复用 Docker 缓存。
 
 如果 `VERSION` 改变，先阅读 `CHANGELOG.md`、README 和对应版本说明。确认数据库支持原地升级后才执行：
@@ -901,6 +910,16 @@ sudo ./scripts/deploy-debian.sh
 ```bash
 sudo ./scripts/deploy-debian.sh --allow-version-change
 ```
+
+如果现有容器使用 `vozeb-pro:local` 等无法识别版本的标签，脚本也会默认停止；审查当前数据库来源和目标版本后才能使用同一参数继续。`--force-build` 会创建带时间和进程号后缀的新标签，不会覆盖当前回滚镜像：
+
+```bash
+sudo ./scripts/deploy-debian.sh --force-build
+```
+
+一键流程拒绝包含未提交/未跟踪构建文件的工作区，也拒绝自动部署修改过 `docker-compose.yml` 的提交。后者可能改变项目名、PostgreSQL 或媒体卷拓扑，必须按第十一节人工审查和部署。脚本会记录并核对 PostgreSQL 容器、数据库卷和已有媒体卷身份，应用更新过程中不得发生变化。
+
+更新前 `.env` 中的 `VOZEB_PRO_IMAGE` 必须与正在运行的 App 一致，App 与 Worker 也必须使用同一镜像；否则脚本会停止，防止回滚标签指向错误镜像。先用 `docker inspect` 查清现场，不要直接覆盖标签。
 
 服务器重启不会拉取 GitHub 最新代码；Compose 的 `restart: unless-stopped` 会恢复上一次验证通过的镜像。发布日志位于 `/var/log/vozeb-pro-deploy.log`，升级备份位于 `/opt/vozeb-pro/backups/`。
 
