@@ -27,6 +27,8 @@ HAD_POSTGRES=0
 POSTGRES_CONTAINER_BASELINE=""
 POSTGRES_VOLUME_BASELINE=""
 DATA_VOLUME_BASELINE=""
+MUTATION_ACTIVE=0
+ROLLBACK_RUNNING=0
 
 usage() {
     printf '%s\n' \
@@ -121,7 +123,7 @@ validate_compose_topology() {
 }
 
 capture_existing_deployment() {
-    local app_container configured_image postgres_container tagged_image_id worker_container worker_image
+    local app_container app_mount configured_image postgres_container tagged_image_id worker_container worker_image
     app_container="$(docker compose ps -a -q app)"
     postgres_container="$(docker compose ps -a -q postgres)"
     configured_image="$(read_env_value VOZEB_PRO_IMAGE)"
@@ -132,6 +134,8 @@ capture_existing_deployment() {
         [[ "$configured_image" == "$OLD_IMAGE" ]] || die "VOZEB_PRO_IMAGE does not match the running App image"
         tagged_image_id="$(docker image inspect "$OLD_IMAGE" --format '{{.Id}}' 2>/dev/null || true)"
         [[ "$tagged_image_id" == "$OLD_IMAGE_ID" ]] || die "The running App image tag no longer resolves to its container image ID"
+        app_mount="$(container_volume_name "$app_container" /app/web/.data)"
+        [[ "$app_mount" == "$DATA_VOLUME" ]] || die "Running App is not mounted to ${DATA_VOLUME}"
         worker_container="$(docker compose ps -a -q generation-worker)"
         if [[ -n "$worker_container" ]]; then
             worker_image="$(docker inspect --format '{{.Config.Image}}' "$worker_container")"
@@ -140,7 +144,7 @@ capture_existing_deployment() {
     else
         OLD_IMAGE="$configured_image"
     fi
-    if [[ -n "$postgres_container" ]]; then
+    if [[ -n "$postgres_container" || -n "$(volume_marker "$POSTGRES_VOLUME")" || -n "$(volume_marker "$DATA_VOLUME")" ]]; then
         HAD_POSTGRES=1
     fi
 }
@@ -217,7 +221,10 @@ prepare_image_identity() {
     base_image="vozeb-pro:${TARGET_VERSION}-${TARGET_SHA}"
     stamp="$(date -u +%Y%m%dT%H%M%SZ)-$$"
     TARGET_IMAGE="$(select_target_image "$base_image" "$FORCE_BUILD" "$stamp")"
-    if ((HAD_APP == 1 || HAD_POSTGRES == 1)); then
+    if ((HAD_APP == 0 && HAD_POSTGRES == 1 && ALLOW_VERSION_CHANGE != 1)); then
+        die "Persistent deployment data exists without an App container; the deployed version cannot be proven. Review compatibility and rerun with --allow-version-change"
+    fi
+    if ((HAD_APP == 1)); then
         if ! deployed_version="$(parse_deployed_version "$OLD_IMAGE")"; then
             ((ALLOW_VERSION_CHANGE == 1)) || die "Cannot establish the deployed version from ${OLD_IMAGE}; review compatibility and rerun with --allow-version-change"
         elif [[ "$deployed_version" != "$TARGET_VERSION" && $ALLOW_VERSION_CHANGE -ne 1 ]]; then
@@ -351,19 +358,35 @@ volume_marker() {
     docker volume inspect "$1" --format '{{.CreatedAt}}' 2>/dev/null || true
 }
 
+container_volume_name() {
+    local container_id="$1" destination="$2"
+    docker inspect --format "{{range .Mounts}}{{if eq .Destination \"${destination}\"}}{{.Name}}{{end}}{{end}}" "$container_id" 2>/dev/null || true
+}
+
 capture_persistence_identity() {
+    local postgres_mount
     POSTGRES_CONTAINER_BASELINE="$(docker compose ps -a -q postgres)"
     [[ -n "$POSTGRES_CONTAINER_BASELINE" ]] || die "PostgreSQL container is missing after startup"
+    postgres_mount="$(container_volume_name "$POSTGRES_CONTAINER_BASELINE" /var/lib/postgresql/data)"
+    [[ "$postgres_mount" == "$POSTGRES_VOLUME" ]] || die "PostgreSQL container is not mounted to ${POSTGRES_VOLUME}"
     POSTGRES_VOLUME_BASELINE="$(volume_marker "$POSTGRES_VOLUME")"
     [[ -n "$POSTGRES_VOLUME_BASELINE" ]] || die "PostgreSQL volume ${POSTGRES_VOLUME} is missing"
     DATA_VOLUME_BASELINE="$(volume_marker "$DATA_VOLUME")"
 }
 
 assert_persistence_identity() {
+    local app_container postgres_mount app_mount
     [[ "$(docker compose ps -a -q postgres)" == "$POSTGRES_CONTAINER_BASELINE" ]] || die "PostgreSQL container identity changed during application deployment"
+    postgres_mount="$(container_volume_name "$POSTGRES_CONTAINER_BASELINE" /var/lib/postgresql/data)"
+    [[ "$postgres_mount" == "$POSTGRES_VOLUME" ]] || die "PostgreSQL container mount changed during application deployment"
     [[ "$(volume_marker "$POSTGRES_VOLUME")" == "$POSTGRES_VOLUME_BASELINE" ]] || die "PostgreSQL volume identity changed during application deployment"
     if [[ -n "$DATA_VOLUME_BASELINE" ]]; then
         [[ "$(volume_marker "$DATA_VOLUME")" == "$DATA_VOLUME_BASELINE" ]] || die "Application data volume identity changed during deployment"
+    fi
+    app_container="$(docker compose ps -a -q app)"
+    if [[ -n "$app_container" ]]; then
+        app_mount="$(container_volume_name "$app_container" /app/web/.data)"
+        [[ "$app_mount" == "$DATA_VOLUME" ]] || die "Application data mount changed during deployment"
     fi
 }
 
@@ -382,9 +405,11 @@ verify_runtime() {
 }
 
 ensure_current_services() {
-    docker compose up -d --pull never
+    docker compose up -d --pull never --no-deps app
+    docker compose up -d --pull never --no-deps generation-worker
     wait_for_service_health postgres 120 || die "PostgreSQL did not become healthy"
     verify_runtime || die "Current App/Worker runtime verification failed"
+    assert_persistence_identity
     docker compose ps
 }
 
@@ -423,7 +448,7 @@ set_image_in_env() {
     temp_env="$(mktemp "${PROJECT_ROOT}/.env.deploy.XXXXXX")"
     awk -v image="$image" '
         BEGIN { written=0 }
-        /^VOZEB_PRO_IMAGE=/ {
+        /^[[:space:]]*VOZEB_PRO_IMAGE[[:space:]]*=/ {
             if (!written) print "VOZEB_PRO_IMAGE=" image
             written=1
             next
@@ -445,6 +470,12 @@ rollback_deployment() {
     log "Restoring previous image configuration ${OLD_IMAGE}"
     cp --preserve=mode "$BACKUP_DIR/.env" .env
     docker compose config --quiet || return 1
+    if ((HAD_APP == 0)); then
+        docker compose rm --force --stop app generation-worker || return 1
+        assert_persistence_identity || return 1
+        log "Removed failed first-deployment App/Worker containers; PostgreSQL and volumes were preserved"
+        return 0
+    fi
     docker compose up -d --pull never --no-deps --force-recreate app || return 1
     docker compose up -d --pull never --no-deps --force-recreate generation-worker || return 1
     verify_runtime || return 1
@@ -452,13 +483,36 @@ rollback_deployment() {
     log "Previous App and Worker image restored"
 }
 
+handle_transaction_exit() {
+    local exit_code="$1"
+    trap - EXIT INT TERM
+    if ((MUTATION_ACTIVE == 1 && ROLLBACK_RUNNING == 0)); then
+        ROLLBACK_RUNNING=1
+        log "Deployment interrupted; attempting automatic rollback"
+        rollback_deployment || log "ERROR: Automatic rollback after interruption failed; use ${BACKUP_DIR} for manual recovery"
+    fi
+    exit "$exit_code"
+}
+
+arm_transaction_traps() {
+    trap 'handle_transaction_exit $?' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+}
+
+disarm_transaction_traps() {
+    MUTATION_ACTIVE=0
+    trap - EXIT INT TERM
+}
+
 deploy_target() {
     local failed=0 previous_heartbeat install_payload install_state
-    previous_heartbeat="$(read_worker_heartbeat)"
-    set_image_in_env "$TARGET_IMAGE"
+    MUTATION_ACTIVE=1
     if [[ -n "$(docker compose ps -a -q generation-worker)" ]]; then
         docker compose stop generation-worker || failed=1
     fi
+    if ((failed == 0)); then previous_heartbeat="$(read_worker_heartbeat)"; fi
+    if ((failed == 0)); then set_image_in_env "$TARGET_IMAGE" || failed=1; fi
     if ((failed == 0)); then docker compose up -d --pull never --no-deps --force-recreate app || failed=1; fi
     if ((failed == 0)); then wait_for_service_health app 180 || failed=1; fi
     if ((failed == 0)); then wait_for_http /api/health/live 60 || failed=1; fi
@@ -474,9 +528,17 @@ deploy_target() {
     if ((failed == 0)); then assert_persistence_identity || failed=1; fi
     if ((failed != 0)); then
         log "New deployment failed; attempting image rollback"
-        rollback_deployment || die "Automatic rollback failed; use ${BACKUP_DIR} and DEPLOY-GUIDE.md for manual recovery"
+        ROLLBACK_RUNNING=1
+        if ! rollback_deployment; then
+            MUTATION_ACTIVE=0
+            disarm_transaction_traps
+            die "Automatic rollback failed; use ${BACKUP_DIR} and DEPLOY-GUIDE.md for manual recovery"
+        fi
+        ROLLBACK_RUNNING=0
+        disarm_transaction_traps
         die "New deployment failed and the previous image was restored"
     fi
+    disarm_transaction_traps
     docker compose ps
 }
 
@@ -504,6 +566,7 @@ main() {
     log "Building ${TARGET_IMAGE} from ${TARGET_COMMIT}"
     build_target_image
     create_backup
+    arm_transaction_traps
     deploy_target
     log "Deployment succeeded: ${TARGET_IMAGE}"
 }

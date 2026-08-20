@@ -104,7 +104,7 @@ Git 更新只改变服务器上的源码目录；当前 App 和 Worker 仍运行
 
 ### 5.3 版本兼容门禁
 
-脚本从 `VERSION` 读取目标版本，优先从当前 App 容器的实际镜像引用识别已部署版本。它支持版本化仓库镜像和本项目的 `VERSION + Git SHA` 标签；存在 App/PostgreSQL 部署但无法识别版本时默认停止，只有明确审查后才能通过版本授权参数继续。
+脚本从 `VERSION` 读取目标版本，优先从当前 App 容器的实际镜像引用识别已部署版本。它支持版本化仓库镜像和本项目的 `VERSION + Git SHA` 标签；存在 App/PostgreSQL 部署或标准持久化卷但无法识别版本时默认停止，只有明确审查后才能通过版本授权参数继续。App 容器被删除但数据库卷仍保留时，实际旧版本无法证明，因此必须显式提供版本授权参数，不能从生产 `.env` 的期望镜像反推数据库版本。
 
 当二者不同，默认停止并提示维护者阅读 `CHANGELOG.md`、README 和部署说明，确认数据库 Schema 是否支持原地升级。人工确认后使用：
 
@@ -167,8 +167,8 @@ vozeb-pro:v0.0.6-bfe52ee6d381
 
 切换顺序为：
 
-1. 保持 PostgreSQL 运行，并记录 PostgreSQL 容器、数据库卷和已有媒体卷身份。
-2. 记录旧 Worker 心跳并停止旧 Worker。
+1. 保持 PostgreSQL 运行，并记录 PostgreSQL 容器、实际数据库挂载、数据库卷和已有媒体卷身份。
+2. 停止旧 Worker，再记录稳定的旧 Worker 心跳基线。
 3. 使用 `--pull never --no-deps --force-recreate` 只重建 App。
 4. 等待 Compose App 健康检查并请求 `http://127.0.0.1:3000/api/health/live`。
 5. 请求 `/api/install/status`，区分已安装、等待初始化 Schema 和等待首个管理员三种状态。
@@ -182,11 +182,13 @@ vozeb-pro:v0.0.6-bfe52ee6d381
 
 ### 5.8 失败与回滚
 
-脚本在修改 `.env` 前记录旧应用镜像。如果 App 在新镜像下未通过健康检查，脚本恢复旧 `.env`，使用旧镜像重建 App 和 Worker，并再次检查健康状态。
+脚本在修改 `.env` 前记录旧应用镜像。进入发布切换后会为正常退出、`INT` 和 `TERM` 设置事务式恢复处理；如果 App 在新镜像下未通过健康检查或脚本意外中断，脚本恢复旧 `.env`，使用旧镜像重建 App 和 Worker，并再次检查健康状态。第一次部署没有旧 App 时，失败恢复只移除本次创建的 App/Worker 容器，保留 PostgreSQL 与命名卷。
 
 自动回滚只适用于已确认没有不兼容 Schema 变化的镜像切换。如果新版本已经执行了不兼容数据库变更，只切换旧镜像并不安全，必须按照 `DEPLOY-GUIDE.md` 使用同一恢复点的数据库、媒体、`.env` 和旧镜像成套恢复。
 
 Worker 更新失败时，脚本保留诊断日志并尝试恢复旧 App/Worker 组合，避免两个服务长期运行不同应用版本。
+
+没有新提交且当前镜像已经匹配时，脚本只以 `--no-deps` 检查或恢复 App/Worker，然后重新核对 PostgreSQL 容器与卷身份；该路径不允许 Compose 重建 PostgreSQL。
 
 脚本永远不执行以下操作：
 

@@ -71,9 +71,13 @@ describe("Debian source deployment contract", () => {
         const appSwitch = deployBody.indexOf("--force-recreate app");
         const workerSwitch = deployBody.indexOf("--force-recreate generation-worker");
         const readyCheck = deployBody.lastIndexOf("wait_for_http /api/health/ready");
+        const workerStop = deployBody.indexOf("docker compose stop generation-worker");
+        const heartbeatBaseline = deployBody.indexOf('previous_heartbeat="$(read_worker_heartbeat)"');
         expect(appSwitch).toBeGreaterThan(-1);
         expect(workerSwitch).toBeGreaterThan(appSwitch);
         expect(readyCheck).toBeGreaterThan(workerSwitch);
+        expect(workerStop).toBeGreaterThan(-1);
+        expect(heartbeatBaseline).toBeGreaterThan(workerStop);
         expect(source).toContain("--pull never");
         expect(source).toContain("/api/health/live");
         expect(source).toContain("/api/health/ready");
@@ -91,8 +95,33 @@ describe("Debian source deployment contract", () => {
         expect(source).toContain('git diff --quiet "$OLD_COMMIT" "$TARGET_COMMIT" -- docker-compose.yml');
         expect(source).toContain("capture_persistence_identity");
         expect(source).toContain("assert_persistence_identity");
+        expect(source).toContain('volume_marker "$POSTGRES_VOLUME"');
+        expect(source).toContain("container_volume_name");
+        expect(source).toContain("Persistent deployment data exists without an App container");
+        expect(source).toContain("HAD_APP == 0 && HAD_POSTGRES == 1");
         expect(source).toContain("VOZEB_PRO_IMAGE does not match the running App image");
         expect(source).toContain("App and Generation Worker currently use different images");
+    });
+
+    it("rolls back interrupted mutations and handles a failed first deployment without an old image", () => {
+        const source = scriptSource();
+        expect(source).toContain("trap 'handle_transaction_exit $?' EXIT");
+        expect(source).toContain("MUTATION_ACTIVE=1");
+        expect(source).toContain("if ((HAD_APP == 0)); then");
+        expect(source).toContain("docker compose rm --force --stop app generation-worker");
+    });
+
+    it("does not let the no-update path recreate PostgreSQL", () => {
+        const source = scriptSource();
+        const body = source.match(/ensure_current_services\(\) \{([\s\S]*?)\n\}/)?.[1] || "";
+        expect(body).toContain("--no-deps app");
+        expect(body).toContain("--no-deps generation-worker");
+        expect(body).toContain("assert_persistence_identity");
+        expect(body).not.toContain("docker compose up -d --pull never\n");
+    });
+
+    it("normalizes spaced VOZEB_PRO_IMAGE assignments when updating .env", () => {
+        expect(scriptSource()).toContain("/^[[:space:]]*VOZEB_PRO_IMAGE[[:space:]]*=/");
     });
 
     it("excludes deployment backups from Git and the Docker build context", () => {

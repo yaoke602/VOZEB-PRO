@@ -917,11 +917,11 @@ sudo ./scripts/deploy-debian.sh --allow-version-change
 sudo ./scripts/deploy-debian.sh --force-build
 ```
 
-一键流程拒绝包含未提交/未跟踪构建文件的工作区，也拒绝自动部署修改过 `docker-compose.yml` 的提交。后者可能改变项目名、PostgreSQL 或媒体卷拓扑，必须按第十一节人工审查和部署。脚本会记录并核对 PostgreSQL 容器、数据库卷和已有媒体卷身份，应用更新过程中不得发生变化。
+一键流程拒绝包含未提交/未跟踪构建文件的工作区，也拒绝自动部署修改过 `docker-compose.yml` 的提交。后者可能改变项目名、PostgreSQL 或媒体卷拓扑，必须按第十一节人工审查和部署。脚本会记录并核对 PostgreSQL 容器、实际挂载的数据库卷和已有媒体卷身份，应用更新过程中不得发生变化。即使 PostgreSQL 容器已被删除，只要标准数据库卷或媒体卷仍存在，脚本仍按“已有部署”执行版本兼容门禁；由于此时无法从实际 App 镜像证明旧版本，必须先审查数据兼容性并显式使用 `--allow-version-change`，不能借删除容器绕过检查。
 
 更新前 `.env` 中的 `VOZEB_PRO_IMAGE` 必须与正在运行的 App 一致，App 与 Worker 也必须使用同一镜像；否则脚本会停止，防止回滚标签指向错误镜像。先用 `docker inspect` 查清现场，不要直接覆盖标签。
 
-服务器重启不会拉取 GitHub 最新代码；Compose 的 `restart: unless-stopped` 会恢复上一次验证通过的镜像。发布日志位于 `/var/log/vozeb-pro-deploy.log`，升级备份位于 `/opt/vozeb-pro/backups/`。
+服务器重启不会拉取 GitHub 最新代码；Compose 的 `restart: unless-stopped` 会恢复上一次验证通过的镜像。没有新提交时，脚本只检查并恢复 App/Worker，不重建 PostgreSQL。发布切换期间如果脚本异常退出或收到 `INT`/`TERM`，会自动尝试回滚；第一次部署失败时只移除本次创建的 App/Worker 容器，保留 PostgreSQL 容器及全部命名卷。发布日志位于 `/var/log/vozeb-pro-deploy.log`，升级备份位于 `/opt/vozeb-pro/backups/`。
 
 ```bash
 tail -n 200 /var/log/vozeb-pro-deploy.log
