@@ -70,7 +70,7 @@ git status --short --branch
 - 域名已解析到服务器。
 - 80/443 端口可被公网访问，Nginx 与 HTTPS 已准备好或可配置。
 - 服务器能够访问模型、对象存储、SMTP、支付服务等实际业务上游。
-- 部署目录固定为 `/opt/vozeb-pro`。
+- 部署目录固定为 `/root/mutangaigc/VOZEB-PRO`。
 
 检查：
 
@@ -96,7 +96,7 @@ x86_64
 项目目录：F:\yaoaitest16\VOZEB-PRO
 服务器 SSH 地址：root@203.0.113.10
 生产域名：vozeb.example.com
-部署目录：/opt/vozeb-pro
+部署目录：/root/mutangaigc/VOZEB-PRO
 ```
 
 镜像标签由项目版本和 Git 短提交号生成，例如：
@@ -349,14 +349,14 @@ Docker 官方文档：<https://docs.docker.com/engine/install/debian/>。
 在 Debian 服务器执行：
 
 ```bash
-install -d -m 750 /opt/vozeb-pro
-install -d -m 700 /opt/vozeb-pro/backups
-cp /tmp/vozeb-deploy/docker-compose.yml /opt/vozeb-pro/
-cp /tmp/vozeb-deploy/.env.example /opt/vozeb-pro/
-cp /tmp/vozeb-deploy/VERSION /opt/vozeb-pro/
-cp /tmp/vozeb-deploy/CHANGELOG.md /opt/vozeb-pro/
-cp /tmp/vozeb-deploy/DEPLOYMENT-MANIFEST.txt /opt/vozeb-pro/
-cd /opt/vozeb-pro
+install -d -m 750 /root/mutangaigc/VOZEB-PRO
+install -d -m 700 /root/mutangaigc/VOZEB-PRO/backups
+cp /tmp/vozeb-deploy/docker-compose.yml /root/mutangaigc/VOZEB-PRO/
+cp /tmp/vozeb-deploy/.env.example /root/mutangaigc/VOZEB-PRO/
+cp /tmp/vozeb-deploy/VERSION /root/mutangaigc/VOZEB-PRO/
+cp /tmp/vozeb-deploy/CHANGELOG.md /root/mutangaigc/VOZEB-PRO/
+cp /tmp/vozeb-deploy/DEPLOYMENT-MANIFEST.txt /root/mutangaigc/VOZEB-PRO/
+cd /root/mutangaigc/VOZEB-PRO
 ```
 
 生产环境在 `.env` 中设置：
@@ -395,7 +395,7 @@ docker image inspect "$POSTGRES_IMAGE" --format 'ID={{.Id}} Architecture={{.Arch
 ### 6.3 创建生产 `.env`
 
 ```bash
-cd /opt/vozeb-pro
+cd /root/mutangaigc/VOZEB-PRO
 umask 077
 cp .env.example .env
 chmod 600 .env
@@ -440,7 +440,7 @@ Agent 只能检查字段是否存在和长度是否合规，不得输出字段�
 ### 6.4 验证配置并启动
 
 ```bash
-cd /opt/vozeb-pro
+cd /root/mutangaigc/VOZEB-PRO
 docker compose config --quiet
 docker compose config --images | while IFS= read -r image; do
   docker image inspect "$image" --format 'Image={{.RepoTags}} ID={{.Id}} Architecture={{.Architecture}}'
@@ -543,7 +543,7 @@ https://vozeb.example.com/install
 安装完成后检查：
 
 ```bash
-cd /opt/vozeb-pro
+cd /root/mutangaigc/VOZEB-PRO
 curl --fail --silent --show-error http://127.0.0.1:3000/api/health/live
 curl --fail --silent --show-error http://127.0.0.1:3000/api/health/ready
 docker inspect vozeb-pro --format 'Image={{.Config.Image}} Health={{.State.Health.Status}}'
@@ -556,10 +556,10 @@ docker compose logs --tail 100 generation-worker
 
 ## 九、日常操作
 
-所有命令在 `/opt/vozeb-pro` 执行：
+所有命令在 `/root/mutangaigc/VOZEB-PRO` 执行：
 
 ```bash
-cd /opt/vozeb-pro
+cd /root/mutangaigc/VOZEB-PRO
 
 # 状态
 docker compose ps
@@ -606,14 +606,14 @@ docker compose up -d --pull never
 ### 10.2 创建备份目录
 
 ```bash
-cd /opt/vozeb-pro
+cd /root/mutangaigc/VOZEB-PRO
 backup_stamp=$(date -u +%Y%m%dT%H%M%SZ)
-backup_dir="/opt/vozeb-pro/backups/$backup_stamp"
+backup_dir="/root/mutangaigc/VOZEB-PRO/backups/$backup_stamp"
 install -d -m 700 "$backup_dir"
 printf 'Backup directory: %s\n' "$backup_dir"
 ```
 
-确认输出路径必须位于 `/opt/vozeb-pro/backups/`。
+确认输出路径必须位于 `/root/mutangaigc/VOZEB-PRO/backups/`。
 
 ### 10.3 备份 PostgreSQL
 
@@ -690,7 +690,7 @@ docker image inspect "$NEW_IMAGE_TAG" --format 'ID={{.Id}} Architecture={{.Archi
 ### 11.3 检查 Compose 变化
 
 ```bash
-diff -u /opt/vozeb-pro/docker-compose.yml /tmp/vozeb-deploy/docker-compose.yml || true
+diff -u /root/mutangaigc/VOZEB-PRO/docker-compose.yml /tmp/vozeb-deploy/docker-compose.yml || true
 ```
 
 如果新 Compose 修改了服务名、项目名、数据库连接、卷名或挂载目标，停止更新并人工评审。普通应用更新不得静默创建一套新卷。
@@ -698,16 +698,16 @@ diff -u /opt/vozeb-pro/docker-compose.yml /tmp/vozeb-deploy/docker-compose.yml |
 确认新 Compose 兼容后才复制：
 
 ```bash
-cp /tmp/vozeb-deploy/docker-compose.yml /opt/vozeb-pro/docker-compose.yml
-cp /tmp/vozeb-deploy/VERSION /opt/vozeb-pro/VERSION
-cp /tmp/vozeb-deploy/CHANGELOG.md /opt/vozeb-pro/CHANGELOG.md
-cp /tmp/vozeb-deploy/DEPLOYMENT-MANIFEST.txt /opt/vozeb-pro/DEPLOYMENT-MANIFEST.txt
+cp /tmp/vozeb-deploy/docker-compose.yml /root/mutangaigc/VOZEB-PRO/docker-compose.yml
+cp /tmp/vozeb-deploy/VERSION /root/mutangaigc/VOZEB-PRO/VERSION
+cp /tmp/vozeb-deploy/CHANGELOG.md /root/mutangaigc/VOZEB-PRO/CHANGELOG.md
+cp /tmp/vozeb-deploy/DEPLOYMENT-MANIFEST.txt /root/mutangaigc/VOZEB-PRO/DEPLOYMENT-MANIFEST.txt
 ```
 
 ### 11.4 切换不可变镜像标签
 
 ```bash
-cd /opt/vozeb-pro
+cd /root/mutangaigc/VOZEB-PRO
 PREVIOUS_IMAGE_TAG=$(docker inspect vozeb-pro --format '{{.Config.Image}}')
 printf 'Previous image: %s\n' "$PREVIOUS_IMAGE_TAG"
 printf 'New image: %s\n' "$NEW_IMAGE_TAG"
@@ -740,7 +740,7 @@ docker compose logs --tail 200 generation-worker
 只有在确认数据库 Schema 向后兼容时，才可只切回旧镜像：
 
 ```bash
-cd /opt/vozeb-pro
+cd /root/mutangaigc/VOZEB-PRO
 ROLLBACK_IMAGE_TAG='替换为上一版完整不可变标签'
 
 docker image inspect "$ROLLBACK_IMAGE_TAG" --format 'ID={{.Id}} Architecture={{.Architecture}}'
@@ -767,8 +767,8 @@ curl --fail --silent --show-error http://127.0.0.1:3000/api/health/ready
 数据库恢复示例：
 
 ```bash
-cd /opt/vozeb-pro
-RESTORE_DIR='/opt/vozeb-pro/backups/替换为已核验的备份目录'
+cd /root/mutangaigc/VOZEB-PRO
+RESTORE_DIR='/root/mutangaigc/VOZEB-PRO/backups/替换为已核验的备份目录'
 test -d "$RESTORE_DIR"
 test -s "$RESTORE_DIR/postgres.dump"
 (cd "$RESTORE_DIR" && sha256sum -c SHA256SUMS)
@@ -801,11 +801,11 @@ docker run --rm --user 0 \
 恢复匹配的 `.env`、Compose 和旧镜像标签后再启动：
 
 ```bash
-cp "$RESTORE_DIR/.env" /opt/vozeb-pro/.env
-cp "$RESTORE_DIR/docker-compose.yml" /opt/vozeb-pro/docker-compose.yml
-chmod 600 /opt/vozeb-pro/.env
+cp "$RESTORE_DIR/.env" /root/mutangaigc/VOZEB-PRO/.env
+cp "$RESTORE_DIR/docker-compose.yml" /root/mutangaigc/VOZEB-PRO/docker-compose.yml
+chmod 600 /root/mutangaigc/VOZEB-PRO/.env
 
-cd /opt/vozeb-pro
+cd /root/mutangaigc/VOZEB-PRO
 docker compose config --quiet
 docker compose up -d --pull never
 curl --fail --silent --show-error http://127.0.0.1:3000/api/health/ready
@@ -837,7 +837,7 @@ curl --fail --silent --show-error http://127.0.0.1:3000/api/health/ready
 | Debian 构建源 502 | 本地构建传入 `DEBIAN_MIRROR` 和 `DEBIAN_SECURITY_MIRROR`；服务器不现场构建 |
 | npm 下载超时 | 重新执行本地构建可复用 BuildKit 缓存；重复失败时再评估可信 npm 镜像，不要改服务器数据 |
 | 服务器提示缺少镜像或尝试拉取镜像 | 不要临时开放生产服务器拉取；检查交付 tar 是否同时包含清单中的应用镜像和 `postgres:16.6-alpine`，回到本地补齐后重新上传 |
-| `no configuration file provided` | 先进入 `/opt/vozeb-pro`，再执行 Compose |
+| `no configuration file provided` | 先进入 `/root/mutangaigc/VOZEB-PRO`，再执行 Compose |
 | Compose 创建了新卷 | 检查 `COMPOSE_PROJECT_NAME=vozeb-pro`、执行目录和卷声明；不要删除任一卷 |
 | PostgreSQL unhealthy | 检查磁盘、日志、数据库密码和卷权限：`docker compose logs --tail 200 postgres` |
 | App unhealthy | 检查 `.env` 必填字段、数据库状态和 App 日志 |
@@ -857,23 +857,23 @@ curl --fail --silent --show-error http://127.0.0.1:3000/api/health/ready
 
 ### 15.2 服务器源码一键构建与更新
 
-如果明确选择“服务器从 GitHub 拉取源码并本地构建镜像”，项目固定放在 `/opt/vozeb-pro`，生产分支固定为 `main_yao_20260820`。首次部署且该目录尚不存在时执行：
+如果明确选择“服务器从 GitHub 拉取源码并本地构建镜像”，项目固定放在 `/root/mutangaigc/VOZEB-PRO`，生产分支固定为 `main_yao_20260820`。首次部署且该目录尚不存在时执行：
 
 ```bash
 apt-get update
 apt-get install -y git curl util-linux
 git clone --branch main_yao_20260820 --single-branch \
   https://github.com/yaoke602/VOZEB-PRO.git \
-  /opt/vozeb-pro
-cd /opt/vozeb-pro
+  /root/mutangaigc/VOZEB-PRO
+cd /root/mutangaigc/VOZEB-PRO
 ```
 
-把已经准备好的生产 `.env` 安全地放到 `/opt/vozeb-pro/.env`，再限制权限。不要从 Git 提交或命令输出中复制密钥：
+把已经准备好的生产 `.env` 安全地放到 `/root/mutangaigc/VOZEB-PRO/.env`，再限制权限。不要从 Git 提交或命令输出中复制密钥：
 
 ```bash
-chown root:root /opt/vozeb-pro/.env
-chmod 600 /opt/vozeb-pro/.env
-cd /opt/vozeb-pro
+chown root:root /root/mutangaigc/VOZEB-PRO/.env
+chmod 600 /root/mutangaigc/VOZEB-PRO/.env
+cd /root/mutangaigc/VOZEB-PRO
 docker compose config --quiet
 ```
 
@@ -889,7 +889,7 @@ sudo ./scripts/deploy-debian.sh
 日常更新仍然只执行：
 
 ```bash
-cd /opt/vozeb-pro
+cd /root/mutangaigc/VOZEB-PRO
 sudo ./scripts/deploy-debian.sh
 ```
 
@@ -921,7 +921,7 @@ sudo ./scripts/deploy-debian.sh --force-build
 
 更新前 `.env` 中的 `VOZEB_PRO_IMAGE` 必须与正在运行的 App 一致，App 与 Worker 也必须使用同一镜像；否则脚本会停止，防止回滚标签指向错误镜像。先用 `docker inspect` 查清现场，不要直接覆盖标签。
 
-服务器重启不会拉取 GitHub 最新代码；Compose 的 `restart: unless-stopped` 会恢复上一次验证通过的镜像。只有实际 App 镜像、目标提交和镜像 revision 标签都一致时，脚本才走无更新检查路径；该路径只检查并恢复 App/Worker，不重建 PostgreSQL。没有 App 但保留持久卷的现场即使已人工授权，也必须先备份再执行完整发布。发布切换期间如果脚本异常退出或收到 `INT`/`TERM`，会自动尝试回滚；第一次部署失败时只移除本次创建的 App/Worker 容器，保留 PostgreSQL 容器及全部命名卷。`.env` 的发布与回滚均通过权限受控的临时文件校验后原子替换。发布日志位于 `/var/log/vozeb-pro-deploy.log`，升级备份位于 `/opt/vozeb-pro/backups/`。
+服务器重启不会拉取 GitHub 最新代码；Compose 的 `restart: unless-stopped` 会恢复上一次验证通过的镜像。只有实际 App 镜像、目标提交和镜像 revision 标签都一致时，脚本才走无更新检查路径；该路径只检查并恢复 App/Worker，不重建 PostgreSQL。没有 App 但保留持久卷的现场即使已人工授权，也必须先备份再执行完整发布。发布切换期间如果脚本异常退出或收到 `INT`/`TERM`，会自动尝试回滚；第一次部署失败时只移除本次创建的 App/Worker 容器，保留 PostgreSQL 容器及全部命名卷。`.env` 的发布与回滚均通过权限受控的临时文件校验后原子替换。发布日志位于 `/var/log/vozeb-pro-deploy.log`，升级备份位于 `/root/mutangaigc/VOZEB-PRO/backups/`。
 
 ```bash
 tail -n 200 /var/log/vozeb-pro-deploy.log

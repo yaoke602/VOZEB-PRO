@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 umask 077
 
-readonly PROJECT_ROOT="/opt/vozeb-pro"
+readonly PROJECT_ROOT="/root/mutangaigc/VOZEB-PRO"
 readonly DEPLOY_REMOTE="origin"
 readonly DEPLOY_BRANCH="main_yao_20260820"
 readonly BACKUP_ROOT="${PROJECT_ROOT}/backups"

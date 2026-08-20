@@ -21,6 +21,8 @@ describe("Debian source deployment contract", () => {
         expect(source).toMatch(/^#!\/usr\/bin\/env bash/m);
         expect(source).toContain("set -Eeuo pipefail");
         expect(source).toContain("umask 077");
+        expect(source).toContain('PROJECT_ROOT="/root/mutangaigc/VOZEB-PRO"');
+        expect(source).not.toContain('PROJECT_ROOT="/opt/vozeb-pro"');
         expect(source).toContain("flock -n");
         expect(source).toContain("/var/lock/vozeb-pro-deploy.lock");
     });

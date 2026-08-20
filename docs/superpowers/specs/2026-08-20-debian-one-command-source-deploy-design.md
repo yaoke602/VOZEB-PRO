@@ -2,14 +2,14 @@
 
 ## 1. 背景
 
-VOZEB PRO 生产环境运行在腾讯云 Debian 12 `amd64` 服务器。服务器已经安装 Docker、Docker Compose 与 Git，项目固定部署在 `/opt/vozeb-pro`，生产域名为 `https://aigc.mutangtech.com`。
+VOZEB PRO 生产环境运行在腾讯云 Debian 12 `amd64` 服务器。服务器已经安装 Docker、Docker Compose 与 Git，项目固定部署在 `/root/mutangaigc/VOZEB-PRO`，生产域名为 `https://aigc.mutangtech.com`。
 
 维护者选择在服务器上从 GitHub 获取源码并构建应用镜像，不使用远程仓库中的 VOZEB PRO 预构建镜像。PostgreSQL 继续作为独立 Compose 服务运行，数据库和本地媒体由 Docker 命名卷持久化。
 
 目标是把日常发布收敛为一条人工触发的命令：
 
 ```bash
-cd /opt/vozeb-pro
+cd /root/mutangaigc/VOZEB-PRO
 sudo ./scripts/deploy-debian.sh
 ```
 
@@ -73,7 +73,7 @@ sudo ./scripts/deploy-debian.sh
 --help                   显示使用说明
 ```
 
-脚本固定面向 `/opt/vozeb-pro`、`origin` 和 `main_yao_20260820`。如未来需要修改这些部署参数，应通过脚本顶部的只读配置常量集中调整，避免在多个命令中散落。
+脚本固定面向 `/root/mutangaigc/VOZEB-PRO`、`origin` 和 `main_yao_20260820`。如未来需要修改这些部署参数，应通过脚本顶部的只读配置常量集中调整，避免在多个命令中散落。
 
 ## 5. 发布流程
 
@@ -82,7 +82,7 @@ sudo ./scripts/deploy-debian.sh
 脚本启用 Bash 严格模式并通过 `flock` 获取独占锁。随后检查：
 
 - 当前用户具有运行 Docker 和写入项目、备份目录的权限。
-- 当前目录解析结果是 `/opt/vozeb-pro`。
+- 当前目录解析结果是 `/root/mutangaigc/VOZEB-PRO`。
 - `git`、`docker`、Docker Compose、`curl` 和 `flock` 可用。
 - `.env` 是 root 拥有的普通文件、组和其他用户无权限，并包含 Compose 要求的生产变量；`COMPOSE_PROJECT_NAME` 固定为 `vozeb-pro`。
 - Git 当前分支为 `main_yao_20260820`，远端 `origin` 存在。
@@ -141,7 +141,7 @@ vozeb-pro:v0.0.6-bfe52ee6d381
 备份目录使用 UTC 时间戳，位于：
 
 ```text
-/opt/vozeb-pro/backups/<UTC 时间戳>/
+/root/mutangaigc/VOZEB-PRO/backups/<UTC 时间戳>/
 ```
 
 权限固定为仅 root 可访问。至少保存：

@@ -90,7 +90,7 @@ Create `scripts/deploy-debian.sh` with:
 set -Eeuo pipefail
 umask 077
 
-readonly PROJECT_ROOT="/opt/vozeb-pro"
+readonly PROJECT_ROOT="/root/mutangaigc/VOZEB-PRO"
 readonly DEPLOY_REMOTE="origin"
 readonly DEPLOY_BRANCH="main_yao_20260820"
 readonly BACKUP_ROOT="${PROJECT_ROOT}/backups"
@@ -551,7 +551,7 @@ Use this content in section 15.2:
 如果明确选择“服务器从 GitHub 拉取源码并本地构建镜像”，固定使用：
 
 ```bash
-cd /opt/vozeb-pro
+cd /root/mutangaigc/VOZEB-PRO
 git branch --show-current
 git remote -v
 sudo ./scripts/deploy-debian.sh --dry-run
@@ -566,7 +566,7 @@ sudo ./scripts/deploy-debian.sh
 sudo ./scripts/deploy-debian.sh --allow-version-change
 ```
 
-服务器重启不会拉取 GitHub 最新代码；Compose 的 `restart: unless-stopped` 会恢复上一次验证通过的镜像。发布日志位于 `/var/log/vozeb-pro-deploy.log`，升级备份位于 `/opt/vozeb-pro/backups/`。
+服务器重启不会拉取 GitHub 最新代码；Compose 的 `restart: unless-stopped` 会恢复上一次验证通过的镜像。发布日志位于 `/var/log/vozeb-pro-deploy.log`，升级备份位于 `/root/mutangaigc/VOZEB-PRO/backups/`。
 
 ```bash
 tail -n 200 /var/log/vozeb-pro-deploy.log
@@ -633,10 +633,10 @@ Expected: no matches.
 
 - [ ] **Step 3: Verify the production dry run on Debian 12**
 
-After the commits are pushed and cloned at `/opt/vozeb-pro`, run:
+After the commits are pushed and cloned at `/root/mutangaigc/VOZEB-PRO`, run:
 
 ```bash
-cd /opt/vozeb-pro
+cd /root/mutangaigc/VOZEB-PRO
 sudo bash -n scripts/deploy-debian.sh
 sudo ./scripts/deploy-debian.sh --dry-run
 docker compose ps
@@ -649,7 +649,7 @@ Expected: syntax and read-only checks pass; no image is built, `.env` is unchang
 Run only after checking `CHANGELOG.md` and database compatibility:
 
 ```bash
-cd /opt/vozeb-pro
+cd /root/mutangaigc/VOZEB-PRO
 sudo ./scripts/deploy-debian.sh
 docker inspect vozeb-pro --format 'AppImage={{.Config.Image}} Health={{.State.Health.Status}}'
 docker inspect vozeb-pro-generation-worker --format 'WorkerImage={{.Config.Image}} Status={{.State.Status}}'
