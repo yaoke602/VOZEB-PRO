@@ -97,16 +97,74 @@ preflight() {
     docker compose config --quiet
 }
 
+fetch_target() {
+    OLD_COMMIT="$(git rev-parse HEAD)"
+    git fetch "$DEPLOY_REMOTE" "$DEPLOY_BRANCH"
+    TARGET_COMMIT="$(git rev-parse "$DEPLOY_REMOTE/$DEPLOY_BRANCH")"
+    git merge-base --is-ancestor "$OLD_COMMIT" "$TARGET_COMMIT" || die "Remote update is not a fast-forward"
+}
+
+fast_forward_source() {
+    if [[ "$OLD_COMMIT" == "$TARGET_COMMIT" ]]; then
+        log "Source is already at ${TARGET_COMMIT}"
+        return
+    fi
+    git merge --ff-only "$DEPLOY_REMOTE/$DEPLOY_BRANCH"
+    [[ "$(git rev-parse HEAD)" == "$TARGET_COMMIT" ]] || die "HEAD does not match the fetched target"
+}
+
+prepare_image_identity() {
+    local deployed_version=""
+    TARGET_VERSION="$(tr -d '[:space:]' < VERSION)"
+    [[ "$TARGET_VERSION" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "VERSION cannot be used in a Docker tag"
+    TARGET_SHA="$(git rev-parse --short=12 HEAD)"
+    TARGET_IMAGE="vozeb-pro:${TARGET_VERSION}-${TARGET_SHA}"
+    OLD_IMAGE="$(read_env_value VOZEB_PRO_IMAGE)"
+    if [[ "$OLD_IMAGE" =~ ^vozeb-pro:([^-]+)-[0-9a-f]{7,40}$ ]]; then
+        deployed_version="${BASH_REMATCH[1]}"
+    fi
+    if [[ -n "$deployed_version" && "$deployed_version" != "$TARGET_VERSION" && $ALLOW_VERSION_CHANGE -ne 1 ]]; then
+        die "VERSION changed from ${deployed_version} to ${TARGET_VERSION}; review CHANGELOG.md and rerun with --allow-version-change"
+    fi
+}
+
+build_target_image() {
+    if docker image inspect "$TARGET_IMAGE" >/dev/null 2>&1 && ((FORCE_BUILD == 0)); then
+        log "Reusing existing local image ${TARGET_IMAGE}"
+        return
+    fi
+    docker build \
+        --build-arg DEBIAN_MIRROR=http://mirrors.aliyun.com/debian \
+        --build-arg DEBIAN_SECURITY_MIRROR=http://mirrors.aliyun.com/debian-security \
+        --tag "$TARGET_IMAGE" \
+        .
+    docker image inspect "$TARGET_IMAGE" >/dev/null
+}
+
 main() {
     parse_args "$@"
     if ((DRY_RUN == 0)); then
         setup_mutating_run
     fi
     preflight
-    log "Preflight checks passed for ${DEPLOY_REMOTE}/${DEPLOY_BRANCH}"
     if ((DRY_RUN == 1)); then
+        log "Would fetch ${DEPLOY_REMOTE}/${DEPLOY_BRANCH}, enforce fast-forward history, build an immutable image, back up production, and update App then Worker"
         log "Dry run complete; no Git, Docker, .env, or backup state was changed"
+        return
     fi
+    fetch_target
+    fast_forward_source
+    prepare_image_identity
+    if [[ "$OLD_COMMIT" == "$TARGET_COMMIT" && "$OLD_IMAGE" == "$TARGET_IMAGE" && $FORCE_BUILD -eq 0 ]] && docker image inspect "$TARGET_IMAGE" >/dev/null 2>&1; then
+        log "Source and deployed image already match ${TARGET_IMAGE}; skipping build and deployment"
+        ensure_current_services
+        return
+    fi
+    log "Building ${TARGET_IMAGE} from ${TARGET_COMMIT}"
+    build_target_image
+    create_backup
+    deploy_target
+    log "Deployment succeeded: ${TARGET_IMAGE}"
 }
 
 main "$@"

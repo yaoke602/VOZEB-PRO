@@ -30,4 +30,26 @@ describe("Debian source deployment contract", () => {
         expect(source).not.toMatch(/docker\s+image\s+prune\s+[^\n]*-a/);
         expect(source).not.toMatch(/rm\s+-rf/);
     });
+
+    it("only accepts a fast-forward from the fixed production branch", () => {
+        const source = scriptSource();
+        expect(source).toContain('DEPLOY_REMOTE="origin"');
+        expect(source).toContain('DEPLOY_BRANCH="main_yao_20260820"');
+        expect(source).toContain('git fetch "$DEPLOY_REMOTE" "$DEPLOY_BRANCH"');
+        expect(source).toContain("git merge-base --is-ancestor");
+        expect(source).toContain('git merge --ff-only "$DEPLOY_REMOTE/$DEPLOY_BRANCH"');
+        expect(source).not.toMatch(/git\s+(reset\s+--hard|checkout\s+--force|clean\s+-f)/);
+    });
+
+    it("builds a local immutable image, gates VERSION changes, and can resume an interrupted release", () => {
+        const source = scriptSource();
+        expect(source).toContain("--allow-version-change");
+        expect(source).toContain("--force-build");
+        expect(source).toContain('TARGET_IMAGE="vozeb-pro:${TARGET_VERSION}-${TARGET_SHA}"');
+        expect(source).toContain('"$OLD_IMAGE" == "$TARGET_IMAGE"');
+        expect(source).toContain('docker image inspect "$TARGET_IMAGE"');
+        expect(source).toContain("docker build");
+        expect(source).toContain("DEBIAN_MIRROR=http://mirrors.aliyun.com/debian");
+        expect(source).toContain("DEBIAN_SECURITY_MIRROR=http://mirrors.aliyun.com/debian-security");
+    });
 });
