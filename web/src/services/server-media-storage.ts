@@ -106,7 +106,7 @@ async function fetchMediaBlob(url: string) {
 }
 
 async function readExistingServerMedia(reference: ServerMediaReference, type: ServerMediaType): Promise<StoredServerMedia> {
-    const response = await fetch(reference.url, { method: "HEAD", cache: "no-store" });
+    const response = await fetch(mediaMetadataProbeUrl(reference.url), { method: "HEAD", cache: "no-store" });
     if (!response.ok) throw new Error("读取站内媒体失败");
     const mimeType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() || defaultMediaMimeType(type);
     if (!isCreativeUploadMimeType(mimeType) || !mimeType.startsWith(`${type}/`)) throw new Error(`站内媒体不是${type === "image" ? "图片" : type === "video" ? "视频" : "音频"}格式`);
@@ -116,6 +116,11 @@ async function readExistingServerMedia(reference: ServerMediaReference, type: Se
         bytes: Math.max(0, Number(response.headers.get("content-length")) || 0),
         mimeType,
     };
+}
+
+function mediaMetadataProbeUrl(url: string) {
+    const separator = url.includes("?") ? "&" : "?";
+    return `${url}${separator}metadata=head`;
 }
 
 function defaultMediaMimeType(type: ServerMediaType) {

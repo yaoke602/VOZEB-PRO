@@ -38,7 +38,7 @@ describe("server media storage", () => {
             mimeType: "image/png",
         });
         expect(fetchMock).toHaveBeenCalledTimes(1);
-        expect(fetchMock).toHaveBeenCalledWith(url.split("?", 1)[0], { method: "HEAD", cache: "no-store" });
+        expect(fetchMock).toHaveBeenCalledWith(`${url.split("?", 1)[0]}?metadata=head`, { method: "HEAD", cache: "no-store" });
         expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
     });
 
