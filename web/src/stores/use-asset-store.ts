@@ -7,7 +7,7 @@ import type { Asset, CreateLibraryAssetInput } from "@/lib/library-asset-contrac
 import { createLibraryAsset, deleteLibraryAsset, listLibraryAssets, saveLibraryAsset } from "@/services/api/library-assets";
 import { uploadMediaFile } from "@/services/file-storage";
 import { uploadImage } from "@/services/image-storage";
-import { isPermanentServerMedia, serverMediaUrl } from "@/services/server-media-storage";
+import { isPermanentServerMedia, parseServerMediaUrl, serverMediaUrl } from "@/services/server-media-storage";
 import { useUserStore } from "@/stores/use-user-store";
 
 export type { Asset, AssetKind, AudioAsset, ImageAsset, VideoAsset } from "@/lib/library-asset-contract";
@@ -105,7 +105,26 @@ async function prepareAssetForServer(input: CreateLibraryAssetInput): Promise<Cr
     }
     if (input.kind === "video" || input.kind === "audio") {
         const source = input.data.serverUrl || input.data.url || input.data.remoteUrl || "";
-        if (isPermanentServerMedia(input.data.storageKey, input.data.serverUrl)) return { ...input, coverUrl: await storeCover(input.coverUrl) };
+        if (isPermanentServerMedia(input.data.storageKey, input.data.serverUrl)) {
+            const reference = parseServerMediaUrl(input.data.serverUrl || input.data.url);
+            const mediaIdentity = {
+                storageKey: input.data.storageKey || reference?.storageKey,
+                serverUrl: reference?.url || input.data.serverUrl,
+                url: reference?.url || input.data.url,
+            };
+            if (input.kind === "audio") {
+                return {
+                    ...input,
+                    coverUrl: await storeCover(input.coverUrl),
+                    data: { ...input.data, ...mediaIdentity },
+                };
+            }
+            return {
+                ...input,
+                coverUrl: await storeCover(input.coverUrl),
+                data: { ...input.data, ...mediaIdentity },
+            };
+        }
         const media = await uploadMediaFile(source, input.kind);
         if (input.kind === "audio")
             return { ...input, coverUrl: await storeCover(input.coverUrl), data: { url: media.url, storageKey: media.storageKey, serverUrl: media.url, durationMs: media.durationMs || input.data.durationMs, bytes: media.bytes, mimeType: media.mimeType } };

@@ -554,6 +554,16 @@ pnpm run build
 
 ## 社区交流
 
+本地启动
+cd F:\yaoaitest16\VOZEB-PRO
+docker build `
+--build-arg DEBIAN_MIRROR=http://mirrors.aliyun.com/debian `
+--build-arg DEBIAN_SECURITY_MIRROR=http://mirrors.aliyun.com/debian-security `
+-t vozeb-pro:local .
+docker compose up -d --force-recreate app generation-worker
+docker compose ps
+
+
 先在本地推送：
 cd F:\yaoaitest16\VOZEB-PRO
 git push origin main_yao_20260820
