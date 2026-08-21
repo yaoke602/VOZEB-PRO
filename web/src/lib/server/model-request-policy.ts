@@ -2,7 +2,7 @@ import type { LogicalModelCapability, LogicalModelCapabilityProfile } from "@/li
 
 const MIN_REQUEST_TIMEOUT_MS = 5_000;
 const MAX_REQUEST_TIMEOUT_MS = 30 * 60_000;
-export const TEXT_MODEL_REQUEST_TIMEOUT_MS = 3 * 60_000;
+export const TEXT_MODEL_REQUEST_TIMEOUT_MS = 10 * 60_000;
 
 export const DEFAULT_MODEL_REQUEST_TIMEOUT_MS: Record<LogicalModelCapability, number> = {
     text: TEXT_MODEL_REQUEST_TIMEOUT_MS,
