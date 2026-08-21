@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import { App, Button, Input, Modal, Pagination } from "antd";
 import { BookOpenText, FileText, Search } from "lucide-react";
 
+import { readDramaSourceText } from "@/lib/drama-source-file";
 import { splitDramaSource, type DramaSourceEpisodeDraft } from "@/lib/drama-source-splitter";
 import type { DramaProject } from "../types";
 import { useDramaStore } from "../stores/use-drama-store";
@@ -39,7 +40,7 @@ export function DramaSourceImport({ project, onImported }: { project: DramaProje
     const readSource = async (file?: File) => {
         if (!file) return;
         try {
-            const nextDrafts = splitDramaSource(await file.text());
+            const nextDrafts = splitDramaSource(await readDramaSourceText(file));
             if (!nextDrafts.length) return message.warning("导入文件没有可识别的文本内容");
             setDrafts(nextDrafts);
             setFileName(file.name);
@@ -72,7 +73,13 @@ export function DramaSourceImport({ project, onImported }: { project: DramaProje
             <Button className="!h-8 !px-2.5" size="small" icon={<BookOpenText className="size-3.5" />} onClick={() => inputRef.current?.click()}>
                 导入剧本
             </Button>
-            <input ref={inputRef} type="file" accept=".txt,.md,text/plain,text/markdown" className="hidden" onChange={(event) => void readSource(event.target.files?.[0])} />
+            <input
+                ref={inputRef}
+                type="file"
+                accept=".txt,.md,.docx,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                className="hidden"
+                onChange={(event) => void readSource(event.target.files?.[0])}
+            />
             <Modal
                 title="导入整本剧本"
                 open={open}
