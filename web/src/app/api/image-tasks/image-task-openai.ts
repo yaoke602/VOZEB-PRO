@@ -411,8 +411,9 @@ export async function buildJsonImageEditBodies(
                 n: 1,
                 ...(quality ? { quality } : {}),
                 ...(requestSize ? { size: requestSize } : {}),
-                ...(mask ? { mask } : {}),
-                image_urls: images,
+                output_format: IMAGE_OUTPUT_FORMAT,
+                ...(mask ? { mask: { image_url: mask } } : {}),
+                images: imageUrlObjects,
             },
         ];
     }
@@ -429,10 +430,10 @@ export async function buildJsonImageEditBodies(
 export function buildSub2ApiImageEditPrompt(prompt: string, references: readonly unknown[]) {
     const text = prompt.trim();
     if (!references.length) return text;
-    const fieldHint = references.length === 1 ? "image_urls[0]" : "image_urls";
+    const fieldHint = references.length === 1 ? "images[0].image_url" : "images[].image_url";
     return [
         `Use the actual reference image supplied in the JSON field ${fieldHint} as visual input, not as a text-only hint.`,
-        "The first reference image, image_urls[0], is the primary identity and character reference. Keep the same person or character, face proportions, hairstyle, body shape, clothing, and main pose as much as possible.",
+        "The first reference image, images[0].image_url, is the primary identity and character reference. Keep the same person or character, face proportions, hairstyle, body shape, clothing, and main pose as much as possible.",
         "Only apply the user's requested edit to the existing referenced subject. Do not replace the referenced person or character with a new unrelated person.",
         "",
         `User request: ${text}`,

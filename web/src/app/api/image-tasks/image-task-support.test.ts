@@ -158,15 +158,16 @@ describe("GlobalAiOpc image task paths", () => {
         await expect(openAiImageTaskPath(openAiConfig, "edit")).resolves.toBe("/images/edits");
     });
 
-    it("keeps Sub2API image edits on the configured shared endpoint", async () => {
+    it("routes Sub2API image edits to the dedicated edit endpoint", async () => {
         const sub2ApiConfig = {
             baseUrl: "https://provider.example/v1",
             model: "gpt-image-1",
             apiFormat: "openai",
-            advancedConfig: { protocol: "sub2api", createPath: "/images/generations" },
+            advancedConfig: { protocol: "sub2api", createPath: "/images/generations", editPath: "/images/generations" },
         } as never;
 
-        await expect(openAiImageTaskPath(sub2ApiConfig, "edit")).resolves.toBe("/images/generations");
+        await expect(openAiImageTaskPath(sub2ApiConfig, "generation")).resolves.toBe("/images/generations");
+        await expect(openAiImageTaskPath(sub2ApiConfig, "edit")).resolves.toBe("/images/edits");
     });
 
     it("treats a model-level protocol as strict even when the parent channel is legacy auto", () => {

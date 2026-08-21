@@ -115,10 +115,10 @@ export async function openAiImageTaskPath(config: ImageTaskConfig, kind: ImageTa
     const configured = (config.advancedConfig?.createPath || "").trim();
     const configuredPath = configured ? normalizeImageTaskPath(configured) : "";
     if (kind !== "edit") return configuredPath || "/images/generations";
+    const apiBase = await resolveConfiguredApiBaseUrl(config.baseUrl).catch(() => config.baseUrl);
+    if (shouldUseSub2ApiImageEdit(config, apiBase)) return "/images/edits";
     const configuredEditPath = (config.advancedConfig?.editPath || "").trim();
     if (configuredEditPath) return normalizeImageTaskPath(configuredEditPath);
-    const apiBase = await resolveConfiguredApiBaseUrl(config.baseUrl).catch(() => config.baseUrl);
-    if (shouldUseSub2ApiImageEdit(config, apiBase)) return configuredPath || "/images/generations";
 
     const ruleEditPath = configuredImageEditPath(config);
     if (ruleEditPath) return ruleEditPath;

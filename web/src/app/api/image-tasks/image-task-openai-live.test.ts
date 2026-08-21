@@ -104,7 +104,7 @@ describe("OpenAI image provider over a live compatible fixture", () => {
         }
     });
 
-    it("sends sub2api edits as one JSON request with an image_urls string array", async () => {
+    it("sends sub2api edits to images/edits with images[].image_url", async () => {
         const fixture = createProtocolFixtureServer();
         await new Promise<void>((resolve) => fixture.server.listen(0, "127.0.0.1", resolve));
         const address = fixture.server.address();
@@ -113,7 +113,10 @@ describe("OpenAI image provider over a live compatible fixture", () => {
         const task = liveImageTask(origin, {
             id: "image-sub2api-live",
             kind: "edit",
-            references: [{ type: "image/png", dataUrl: "https://cdn.example.com/reference.png" }],
+            references: [
+                { type: "image/png", dataUrl: "https://cdn.example.com/reference-primary.png" },
+                { type: "image/png", dataUrl: "https://cdn.example.com/reference-secondary.png" },
+            ],
             config: {
                 baseUrl: origin,
                 apiKey: "fixture-key",
@@ -127,10 +130,11 @@ describe("OpenAI image provider over a live compatible fixture", () => {
         try {
             await expect(runOpenAiImageTask(task, "", "", "", true)).resolves.toMatchObject({ dataUrl: expect.stringMatching(/^data:image\/png;base64,/) });
             expect(fixture.requests).toHaveLength(1);
-            expect(fixture.requests[0]?.path).toBe("/v1/images/generations");
+            expect(fixture.requests[0]?.path).toBe("/v1/images/edits");
             const body = JSON.parse(fixture.requests[0]?.body.toString("utf8") || "{}");
-            expect(body.image_urls).toEqual(["https://cdn.example.com/reference.png"]);
-            expect(body.images).toBeUndefined();
+            expect(body.images).toEqual([{ image_url: "https://cdn.example.com/reference-primary.png" }, { image_url: "https://cdn.example.com/reference-secondary.png" }]);
+            expect(body.image_urls).toBeUndefined();
+            expect(body.output_format).toBe("png");
             expect(fixture.requests[0]?.headers["idempotency-key"]).toBe("image-task:image-sub2api-live:attempt:1");
         } finally {
             await new Promise<void>((resolve, reject) => fixture.server.close((error?: Error) => (error ? reject(error) : resolve())));
