@@ -4,7 +4,7 @@ import { App, Button, Drawer, Grid } from "antd";
 import type { TextAreaRef } from "antd/es/input/TextArea";
 import { ChevronsDown, Clapperboard, FolderOpen, History, Play, Plus, ScanFace, ShoppingBag, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 import { CREATIVE_UPLOAD_ACCEPT, CREATIVE_UPLOAD_MAX_BYTES, isCreativeUploadMimeType } from "@/lib/creative-upload";
 import type { CreateOverviewAsset } from "@/lib/create-workbench-overview";
@@ -16,9 +16,11 @@ import { listAgentSkills, type AgentSkillSummary } from "@/services/api/agent-sk
 import type { CreativeAgentRun } from "@/services/api/creative";
 import { optimizePrompt } from "@/services/api/prompt-optimization";
 import { usePublicSessionStore } from "@/stores/use-public-session-store";
+import { useConfigStore } from "@/stores/use-config-store";
 import type { PublicGalleryItem } from "@/services/api/work-governance";
 import { createAgentDraftFromHash } from "@/lib/create-agent-prompt";
 import { resolveSiteTitle } from "@/lib/site-brand";
+import { requestCreditCost } from "@/constant/credits";
 
 import { CreativeComposer } from "./components/creative-composer";
 import { CreativeAssetsPanel } from "./components/creative-assets-panel";
@@ -27,8 +29,11 @@ import { CreativeConversationList } from "./components/creative-conversation-lis
 import { CreateInspirationGallery } from "./components/create-inspiration-gallery";
 import { CreativeMessages } from "./components/creative-messages";
 import { CreateWorkbenchOverview } from "./components/create-workbench-overview";
+import { ImageWorkbenchView } from "./components/image-workbench-view";
+import { VideoWorkbenchView } from "./components/video-workbench-view";
 import { publicCreativeAssetPrompt, remapCreativeAssetReferences } from "./components/creative-asset-mention";
 import { createConversationHref, createConversationIdFromSearch } from "./create-conversation-navigation";
+import { imageWorkbenchSize, type ImageWorkbenchRatio, type ImageWorkbenchResolution } from "./image-workbench-resolution";
 import { useCreateAgent } from "./use-create-agent";
 
 const SKILL_VISUALS = [
@@ -38,9 +43,16 @@ const SKILL_VISUALS = [
     { icon: Clapperboard, iconClass: "text-red-500 dark:text-red-300", surfaceClass: "bg-red-50 dark:bg-red-400/10" },
 ] as const;
 
+const ALL_CREATIVE_CAPABILITIES: CreativeGenerationMode[] = ["image", "video", "audio"];
+const IMAGE_WORKBENCH_CAPABILITIES: CreativeGenerationMode[] = ["image"];
+const VIDEO_WORKBENCH_CAPABILITIES: CreativeGenerationMode[] = ["video", "audio"];
+
 export default function CreatePage() {
     const { message } = App.useApp();
     const router = useRouter();
+    const pathname = usePathname();
+    const workspaceMode: "image" | "video" | undefined = pathname === "/image" ? "image" : pathname === "/video" ? "video" : undefined;
+    const workspacePath = workspaceMode ? `/${workspaceMode}` : "/create";
     const screens = Grid.useBreakpoint();
     const inputRef = useRef<TextAreaRef>(null);
     const attachmentInputRef = useRef<HTMLInputElement>(null);
@@ -62,13 +74,22 @@ export default function CreatePage() {
     const [selectedSkillId, setSelectedSkillId] = useState<string>();
     const [selectedModelIds, setSelectedModelIds] = useState<string[]>([]);
     const [smartPlanning, setSmartPlanning] = useState(true);
-    const [creationMode, setCreationMode] = useState<"agent" | CreativeGenerationMode>("agent");
-    const [generationPreferences, setGenerationPreferences] = useState<CreativeGenerationPreferences>({});
+    const [creationMode, setCreationMode] = useState<"agent" | CreativeGenerationMode>(workspaceMode || "agent");
+    const [imageAspectRatio, setImageAspectRatio] = useState<ImageWorkbenchRatio>("1:1");
+    const [imageResolution, setImageResolution] = useState<ImageWorkbenchResolution>("1K");
+    const [generationPreferences, setGenerationPreferences] = useState<CreativeGenerationPreferences>(() =>
+        workspaceMode === "image"
+            ? { mode: "image", image: { size: imageWorkbenchSize("1:1", "1K"), quality: "auto", count: 1 } }
+            : workspaceMode === "video"
+              ? { mode: "video", video: { size: "16:9", quality: "720", seconds: 5, count: 1, generateAudio: true, watermark: false, referenceMode: "reference" } }
+              : {},
+    );
     const [historyOpen, setHistoryOpen] = useState(false);
     const [assetsOpen, setAssetsOpen] = useState(false);
     const [awayFromLatest, setAwayFromLatest] = useState(false);
     const [composerExpanded, setComposerExpanded] = useState(true);
     const publicSettings = usePublicSessionStore((state) => state.payload?.settings);
+    const aiConfig = useConfigStore((state) => state.config);
     const siteTitle = resolveSiteTitle(publicSettings?.site?.title);
     const agent = useCreateAgent();
     const openAgentConversation = agent.openConversation;
@@ -76,8 +97,41 @@ export default function CreatePage() {
     const hasConversation = agent.messages.length > 0;
     const showConversation = hasConversation || agent.conversationLoading;
     const selectedSkill = skills.find((skill) => skill.id === selectedSkillId);
-    const modelOptions = useCreativeAgentModels();
+    const modelOptions = useCreativeAgentModels(workspaceMode === "image" ? IMAGE_WORKBENCH_CAPABILITIES : workspaceMode === "video" ? VIDEO_WORKBENCH_CAPABILITIES : ALL_CREATIVE_CAPABILITIES);
     const selectedModels = modelOptions.filter((model) => selectedModelIds.includes(model.id));
+    const imagePointModels = selectedModels.length ? selectedModels.map((model) => model.id) : [aiConfig.imageModel || modelOptions[0]?.id].filter((model): model is string => Boolean(model));
+    const estimatedImagePoints = imagePointModels.reduce(
+        (sum, model) =>
+            sum +
+            requestCreditCost({
+                apiSource: aiConfig.apiSource,
+                modelPointCosts: aiConfig.modelPointCosts,
+                generationPointMultipliers: aiConfig.generationPointMultipliers,
+                model,
+                kind: "image",
+                quality: generationPreferences.image?.quality || "auto",
+                count: generationPreferences.image?.count || 1,
+            }),
+        0,
+    );
+    const videoPointModels = selectedModels.length
+        ? selectedModels.filter((model) => model.capability === "video").map((model) => model.id)
+        : [aiConfig.videoModel || modelOptions.find((model) => model.capability === "video")?.id].filter((model): model is string => Boolean(model));
+    const estimatedVideoPoints = videoPointModels.reduce(
+        (sum, model) =>
+            sum +
+            requestCreditCost({
+                apiSource: aiConfig.apiSource,
+                modelPointCosts: aiConfig.modelPointCosts,
+                generationPointMultipliers: aiConfig.generationPointMultipliers,
+                model,
+                kind: "video",
+                videoQuality: generationPreferences.video?.quality || "720",
+                videoSeconds: generationPreferences.video?.seconds || 5,
+                count: generationPreferences.video?.count || 1,
+            }),
+        0,
+    );
     const updatePrompt = useCallback((value: string) => {
         promptValueRef.current = value;
         promptRevisionRef.current += 1;
@@ -86,7 +140,7 @@ export default function CreatePage() {
 
     useEffect(() => {
         let active = true;
-        void listAgentSkills("all")
+        void listAgentSkills(workspaceMode || "all")
             .then((items) => {
                 if (active) setSkills(items);
             })
@@ -99,7 +153,7 @@ export default function CreatePage() {
         return () => {
             active = false;
         };
-    }, []);
+    }, [workspaceMode]);
 
     useEffect(() => {
         if (initialConversationRestoredRef.current) return;
@@ -108,9 +162,9 @@ export default function CreatePage() {
         if (!conversationId) return;
         void openAgentConversation(conversationId).catch((error) => {
             message.error(error instanceof Error ? error.message : "恢复对话失败");
-            router.replace("/create");
+            router.replace(workspacePath);
         });
-    }, [message, openAgentConversation, router]);
+    }, [message, openAgentConversation, router, workspacePath]);
 
     useEffect(() => {
         if (initialPromptRestoredRef.current) return;
@@ -118,19 +172,19 @@ export default function CreatePage() {
         const incomingDraft = createAgentDraftFromHash(window.location.hash);
         if (!incomingDraft || (!incomingDraft.prompt && !incomingDraft.mode)) return;
         if (incomingDraft.prompt) updatePrompt(incomingDraft.prompt);
-        if (incomingDraft.mode) {
+        if (incomingDraft.mode && !workspaceMode) {
             setCreationMode(incomingDraft.mode);
             setGenerationPreferences(incomingDraft.mode === "agent" ? {} : { mode: incomingDraft.mode });
         }
-        router.replace("/create");
+        router.replace(workspacePath);
         window.requestAnimationFrame(() => inputRef.current?.focus());
         message.success(incomingDraft.prompt ? "已填入创作需求" : "已选择创作类型");
-    }, [message, router, updatePrompt]);
+    }, [message, router, updatePrompt, workspaceMode, workspacePath]);
 
     useEffect(() => {
         if (!agent.conversationId || createConversationIdFromSearch(window.location.search) === agent.conversationId) return;
-        router.replace(createConversationHref(agent.conversationId), { scroll: false });
-    }, [agent.conversationId, router]);
+        router.replace(createConversationHref(agent.conversationId, workspacePath), { scroll: false });
+    }, [agent.conversationId, router, workspacePath]);
 
     useEffect(() => {
         previousScrollTopRef.current = 0;
@@ -166,16 +220,16 @@ export default function CreatePage() {
     }, [agent.conversationId, agent.conversationLoading, agent.messages.length]);
 
     const openConversation = (id: string) => {
-        router.push(createConversationHref(id));
+        router.push(createConversationHref(id, workspacePath));
         void openAgentConversation(id).catch((error) => {
             message.error(error instanceof Error ? error.message : "打开对话失败");
-            router.replace("/create");
+            router.replace(workspacePath);
         });
     };
 
     const newConversation = () => {
         newAgentConversation();
-        router.replace("/create");
+        router.replace(workspacePath);
     };
 
     const submit = async () => {
@@ -204,6 +258,14 @@ export default function CreatePage() {
             if (
                 await agent.submit(prompt, {
                     publicPrompt: publicCreativeAssetPrompt(prompt),
+                    ...(workspaceMode === "image"
+                        ? {
+                              assetIds: agent.selectedAssets
+                                  .filter((asset) => asset.type === "image")
+                                  .slice(0, 9)
+                                  .map((asset) => asset.id),
+                          }
+                        : {}),
                     skillIds: selectedSkillId ? [selectedSkillId] : [],
                     ...(!smartPlanning && selectedModelIds.length ? { modelIds: selectedModelIds } : {}),
                     ...(Object.keys(preferences).length ? { preferences } : {}),
@@ -218,9 +280,9 @@ export default function CreatePage() {
         }
     };
 
-    const retryRound = async (assistantMessage: CreativeMessage, run?: CreativeAgentRun) => {
+    const retryRound = async (assistantMessage: CreativeMessage | undefined, run?: CreativeAgentRun) => {
         try {
-            if (!run) return await agent.retrySubmission(assistantMessage.id);
+            if (!run) return assistantMessage ? await agent.retrySubmission(assistantMessage.id) : false;
             const failedTasks = run.tasks.filter((task) => task.status === "failed");
             if (failedTasks.length) {
                 await agent.retryTasks(
@@ -327,6 +389,7 @@ export default function CreatePage() {
     };
 
     const changeCreationMode = (mode: "agent" | CreativeGenerationMode) => {
+        if (workspaceMode && mode !== workspaceMode) return;
         setCreationMode(mode);
         setGenerationPreferences((current) => {
             const automaticPreferences = { ...current };
@@ -380,6 +443,7 @@ export default function CreatePage() {
                 },
             };
         });
+        agent.selectAsset(assetId);
     };
 
     const removeVideoFrame = (role: FrameRole) => {
@@ -418,6 +482,27 @@ export default function CreatePage() {
 
     const toggleReferencedAsset = (id: string) => {
         const currentAssetIds = agent.selectedAssetIds;
+        const target = [...agent.assets, ...agent.selectedAssets].find((asset) => asset.id === id);
+        if (workspaceMode === "image" && !currentAssetIds.includes(id)) {
+            if (target?.type !== "image") {
+                message.warning("AI 生图工作台只支持选择图片作为参考素材");
+                return;
+            }
+            if (agent.selectedAssets.filter((asset) => asset.type === "image").length >= 9) {
+                message.warning("参考图最多选择 9 张");
+                return;
+            }
+        }
+        if (workspaceMode === "video" && !currentAssetIds.includes(id)) {
+            if (!target || !["image", "video", "audio"].includes(target.type)) {
+                message.warning("AI 视频工作台只支持图片、视频或音频参考素材");
+                return;
+            }
+            if (agent.selectedAssets.length >= 9) {
+                message.warning("参考素材最多选择 9 份");
+                return;
+            }
+        }
         const nextAssetIds = currentAssetIds.includes(id) ? currentAssetIds.filter((assetId) => assetId !== id) : [...currentAssetIds, id];
         const nextPrompt = remapCreativeAssetReferences(promptValueRef.current, [...agent.assets, ...agent.selectedAssets], currentAssetIds, nextAssetIds);
         agent.toggleAsset(id);
@@ -461,14 +546,14 @@ export default function CreatePage() {
         });
     };
 
-    const composerCompact = showConversation && awayFromLatest && !composerExpanded;
+    const composerCompact = !workspaceMode && showConversation && awayFromLatest && !composerExpanded;
     const composer = (
         <CreativeComposer
             inputRef={inputRef}
             value={prompt}
             busy={agent.sending}
             optimizing={optimizingPrompt}
-            centered={!showConversation}
+            centered={!showConversation && !workspaceMode}
             onChange={updatePrompt}
             onOptimize={() => void optimizeCurrentPrompt()}
             onSubmit={() => void submit()}
@@ -484,6 +569,7 @@ export default function CreatePage() {
             generationPreferences={generationPreferences}
             uploading={agent.uploading}
             compact={composerCompact}
+            modeLocked={Boolean(workspaceMode)}
             onExpand={() => {
                 setComposerExpanded(true);
                 window.requestAnimationFrame(() => inputRef.current?.focus());
@@ -564,6 +650,267 @@ export default function CreatePage() {
             </div>
         </div>
     );
+
+    const conversationMessages = (
+        <CreativeMessages
+            messages={agent.messages}
+            assets={agent.assets}
+            loading={agent.conversationLoading}
+            projectLinks={agent.projectLinks}
+            projectErrors={agent.projectErrors}
+            runDetails={agent.runDetails}
+            materializingProjectId={agent.materializingProjectId}
+            onMaterializeProject={agent.materializeProject}
+            onRetryMessage={retryRound}
+            selectedAssetIds={agent.selectedAssetIds}
+            onToggleAsset={toggleReferencedAsset}
+            hasOlder={agent.hasOlderMessages}
+            olderLoading={agent.olderMessagesLoading}
+            onLoadOlder={() => void agent.loadOlderMessages()}
+            followLatest={!awayFromLatest}
+        />
+    );
+
+    if (workspaceMode === "image") {
+        const imageReferences = agent.selectedAssets.filter((asset) => asset.type === "image").slice(0, 9);
+        const uploadImageReferences = (files: File[]) => {
+            const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+            if (imageFiles.length !== files.length) message.warning("AI 生图工作台只会添加图片参考素材");
+            const remaining = Math.max(0, 9 - imageReferences.length);
+            if (imageFiles.length > remaining) message.warning(`参考图最多 9 张，本次仅添加前 ${remaining} 张`);
+            if (remaining > 0) void uploadAttachments(imageFiles.slice(0, remaining));
+        };
+        return (
+            <>
+                <ImageWorkbenchView
+                    inputRef={inputRef}
+                    prompt={prompt}
+                    busy={agent.sending}
+                    uploading={agent.uploading}
+                    optimizing={optimizingPrompt}
+                    references={imageReferences}
+                    assets={agent.historyAssets}
+                    messages={agent.messages}
+                    runs={agent.runDetails}
+                    historyLoading={agent.recentAssetsLoading}
+                    models={modelOptions}
+                    selectedModels={selectedModels}
+                    smartPlanning={smartPlanning}
+                    ratio={imageAspectRatio}
+                    resolution={imageResolution}
+                    preferences={generationPreferences}
+                    estimatedPoints={estimatedImagePoints}
+                    onPromptChange={updatePrompt}
+                    onOptimize={() => void optimizeCurrentPrompt()}
+                    onSubmit={() => void submit()}
+                    onCancel={() => void agent.cancel().catch((error) => message.error(error instanceof Error ? error.message : "停止任务失败"))}
+                    onUpload={() => attachmentInputRef.current?.click()}
+                    onOpenAssets={() => {
+                        setAssetsOpen(true);
+                        setHistoryOpen(false);
+                    }}
+                    onOpenHistory={() => {
+                        setHistoryOpen(true);
+                        setAssetsOpen(false);
+                    }}
+                    onNew={newConversation}
+                    onRemoveReference={removeAttachment}
+                    onUseAsReference={(asset) => {
+                        if (imageReferences.some((item) => item.id === asset.id)) {
+                            message.info("该图片已在参考图中");
+                            return;
+                        }
+                        if (imageReferences.length >= 9) {
+                            message.warning("参考图最多选择 9 张");
+                            return;
+                        }
+                        agent.selectAsset(asset.id);
+                        message.success("已添加为参考图");
+                    }}
+                    onToggleModel={toggleModel}
+                    onClearModels={() => {
+                        setSelectedModelIds([]);
+                        setSmartPlanning(true);
+                    }}
+                    onToggleSmartPlanning={() => {
+                        setSmartPlanning((enabled) => {
+                            if (!enabled) setSelectedModelIds([]);
+                            return !enabled;
+                        });
+                    }}
+                    onRatioChange={(ratio) => {
+                        setImageAspectRatio(ratio);
+                        changeGenerationPreference("image", { size: imageWorkbenchSize(ratio, imageResolution) });
+                    }}
+                    onResolutionChange={(resolution) => {
+                        setImageResolution(resolution);
+                        changeGenerationPreference("image", { size: imageWorkbenchSize(imageAspectRatio, resolution) });
+                    }}
+                    onPreferenceChange={(patch) => changeGenerationPreference("image", patch)}
+                    onRetry={(run) =>
+                        void retryRound(
+                            agent.messages.find((item) => item.id === run.assistantMessageId),
+                            run,
+                        )
+                    }
+                />
+                <CreativeAssetsPanel
+                    open={assetsOpen}
+                    conversationId={agent.conversationId}
+                    assets={agent.assets}
+                    selectedAssetIds={agent.selectedAssetIds}
+                    onToggleAsset={toggleReferencedAsset}
+                    onUsePrompt={(value) => {
+                        updatePrompt(value);
+                        window.requestAnimationFrame(() => inputRef.current?.focus());
+                        message.success("已填入提示词");
+                    }}
+                    onClose={() => setAssetsOpen(false)}
+                />
+                <input
+                    ref={attachmentInputRef}
+                    type="file"
+                    multiple
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(event) => {
+                        const files = Array.from(event.target.files || []);
+                        event.target.value = "";
+                        uploadImageReferences(files);
+                    }}
+                />
+                <Drawer title="创作历史" placement="right" size="min(92vw, 380px)" open={historyOpen} onClose={() => setHistoryOpen(false)} styles={{ body: { padding: 0, overflow: "hidden" } }}>
+                    {historyPanel}
+                </Drawer>
+            </>
+        );
+    }
+
+    if (workspaceMode === "video") {
+        const videoReferences = agent.selectedAssets.filter((asset) => ["image", "video", "audio"].includes(asset.type)).slice(0, 9);
+        const uploadVideoReferences = (files: File[]) => {
+            const remaining = Math.max(0, 9 - videoReferences.length);
+            if (files.length > remaining) message.warning(`参考素材最多 9 份，本次仅添加前 ${remaining} 份`);
+            if (remaining > 0) void uploadAttachments(files.slice(0, remaining));
+        };
+        return (
+            <>
+                <VideoWorkbenchView
+                    inputRef={inputRef}
+                    prompt={prompt}
+                    busy={agent.sending}
+                    uploading={agent.uploading}
+                    optimizing={optimizingPrompt}
+                    references={videoReferences}
+                    assets={agent.historyAssets}
+                    messages={agent.messages}
+                    runs={agent.runDetails}
+                    historyLoading={agent.recentAssetsLoading}
+                    models={modelOptions.filter((model) => model.capability === "video")}
+                    selectedModels={selectedModels.filter((model) => model.capability === "video")}
+                    smartPlanning={smartPlanning}
+                    preferences={generationPreferences}
+                    estimatedPoints={estimatedVideoPoints}
+                    onPromptChange={updatePrompt}
+                    onOptimize={() => void optimizeCurrentPrompt()}
+                    onSubmit={() => void submit()}
+                    onCancel={() => void agent.cancel().catch((error) => message.error(error instanceof Error ? error.message : "停止任务失败"))}
+                    onUpload={() => attachmentInputRef.current?.click()}
+                    onOpenAssets={() => {
+                        setAssetsOpen(true);
+                        setHistoryOpen(false);
+                    }}
+                    onOpenHistory={() => {
+                        setHistoryOpen(true);
+                        setAssetsOpen(false);
+                    }}
+                    onNew={newConversation}
+                    onRemoveReference={removeAttachment}
+                    onUseAsReference={(asset) => {
+                        if (videoReferences.some((item) => item.id === asset.id)) {
+                            message.info("该视频已在参考素材中");
+                            return;
+                        }
+                        if (videoReferences.length >= 9) {
+                            message.warning("参考素材最多选择 9 份");
+                            return;
+                        }
+                        agent.selectAsset(asset.id);
+                        changeGenerationPreference("video", { referenceMode: "reference" });
+                        message.success("已添加为视频参考素材");
+                    }}
+                    onToggleModel={toggleModel}
+                    onClearModels={() => {
+                        setSelectedModelIds([]);
+                        setSmartPlanning(true);
+                    }}
+                    onToggleSmartPlanning={() => {
+                        setSmartPlanning((enabled) => {
+                            if (!enabled) setSelectedModelIds([]);
+                            return !enabled;
+                        });
+                    }}
+                    onPreferenceChange={(patch) => changeGenerationPreference("video", patch)}
+                    onSelectFrame={selectVideoFrame}
+                    onUploadFrame={(role) => {
+                        frameUploadRoleRef.current = role;
+                        frameInputRef.current?.click();
+                    }}
+                    onRemoveFrame={removeVideoFrame}
+                    onRetry={(run) =>
+                        void retryRound(
+                            agent.messages.find((item) => item.id === run.assistantMessageId),
+                            run,
+                        )
+                    }
+                />
+                <CreativeAssetsPanel
+                    open={assetsOpen}
+                    conversationId={agent.conversationId}
+                    assets={agent.assets}
+                    selectedAssetIds={agent.selectedAssetIds}
+                    onToggleAsset={toggleReferencedAsset}
+                    onUsePrompt={(value) => {
+                        updatePrompt(value);
+                        window.requestAnimationFrame(() => inputRef.current?.focus());
+                        message.success("已填入提示词");
+                    }}
+                    onClose={() => setAssetsOpen(false)}
+                />
+                <input
+                    ref={attachmentInputRef}
+                    type="file"
+                    multiple
+                    accept={CREATIVE_UPLOAD_ACCEPT}
+                    className="hidden"
+                    onChange={(event) => {
+                        const files = Array.from(event.target.files || []);
+                        event.target.value = "";
+                        uploadVideoReferences(files);
+                    }}
+                />
+                <input
+                    ref={frameInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(event) => {
+                        const role = frameUploadRoleRef.current;
+                        const file = event.target.files?.[0];
+                        event.target.value = "";
+                        if (!role || !file) return;
+                        void uploadAttachments([file]).then((items) => {
+                            const image = items.find((item) => item.type === "image");
+                            if (image) selectVideoFrame(role, image.id);
+                        });
+                    }}
+                />
+                <Drawer title="创作历史" placement="right" size="min(92vw, 380px)" open={historyOpen} onClose={() => setHistoryOpen(false)} styles={{ body: { padding: 0, overflow: "hidden" } }}>
+                    {historyPanel}
+                </Drawer>
+            </>
+        );
+    }
 
     return (
         <main className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[linear-gradient(180deg,#ffffff_0%,#fcfdff_100%)] text-[#20242a] dark:bg-[linear-gradient(180deg,#111316_0%,#12151a_100%)] dark:text-[#f3f5f7]">

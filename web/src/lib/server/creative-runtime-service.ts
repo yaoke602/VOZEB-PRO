@@ -6,6 +6,7 @@ import {
     getCreativeConversation,
     getCreativeConversationsByIds,
     listCreativeAssets,
+    listRecentCreativeMediaAssetsForUser,
     listCreativeConversations,
     listCreativeMessages,
     registerCreativeAssets,
@@ -81,6 +82,10 @@ export async function listMessagesForUser(userId: string, id: string, afterSeque
 export async function listAssetsForUser(userId: string, id: string) {
     await getConversationForUser(userId, id);
     return listCreativeAssets(id, userId);
+}
+
+export async function listRecentAssetsForUser(userId: string, limit: number) {
+    return listRecentCreativeMediaAssetsForUser(userId, limit);
 }
 
 export async function getAssetForUser(userId: string, id: string) {

@@ -74,6 +74,10 @@ export function listCreativeAssets(conversationId: string) {
     return request<{ assets: CreativeAsset[] }>(`/api/creative/conversations/${encodeURIComponent(conversationId)}/assets`).then((data) => data.assets);
 }
 
+export function listRecentCreativeAssets(limit = 80) {
+    return request<{ assets: CreativeAsset[] }>(`/api/creative/assets?limit=${Math.max(1, Math.min(100, Math.floor(limit)))}`).then((data) => data.assets);
+}
+
 export function createCreativeConversation(input: { surface: "chat" | "canvas" | "drama"; source?: CreativeConversation["source"]; projectId?: string; title?: string }) {
     return request<{ conversation: CreativeConversation }>("/api/creative/conversations", {
         method: "POST",

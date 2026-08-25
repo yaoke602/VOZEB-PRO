@@ -1,5 +1,6 @@
-export function createConversationHref(conversationId: string) {
-    return `/create?${new URLSearchParams({ conversationId }).toString()}`;
+export function createConversationHref(conversationId: string, workspacePath = "/create") {
+    const basePath = ["/create", "/image", "/video"].includes(workspacePath) ? workspacePath : "/create";
+    return `${basePath}?${new URLSearchParams({ conversationId }).toString()}`;
 }
 
 export function createConversationIdFromSearch(search: string) {

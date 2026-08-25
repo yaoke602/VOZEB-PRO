@@ -303,6 +303,36 @@ export async function listRecentCreativeMediaAssets(conversationId: string, user
         .slice(0, boundedLimit);
 }
 
+export async function listRecentCreativeMediaAssetsForUser(userId: string, limit = 80) {
+    const boundedLimit = Math.max(1, Math.min(100, Math.floor(limit)));
+    if (getDatabaseProvider() === "postgres") {
+        await ensurePostgresSchema();
+        const result = await postgresQuery(
+            `SELECT asset.*
+             FROM creative_assets asset
+             INNER JOIN creative_conversations conversation ON conversation.id = asset.conversation_id
+             WHERE asset.user_id = $1
+               AND conversation.user_id = $1
+               AND conversation.surface = 'chat'
+               AND conversation.source = 'agent'
+               AND asset.status = 'ready'
+               AND asset.type IN ('image', 'video')
+               AND asset.source_run_id IS NOT NULL
+               AND asset.source_task_id IS NOT NULL
+             ORDER BY asset.created_at DESC, asset.ordinal DESC
+             LIMIT $2`,
+            [userId, boundedLimit],
+        );
+        return result.rows.map(mapAsset);
+    }
+    const db = await readRuntimeFile();
+    const conversationIds = new Set(db.conversations.filter((item) => item.userId === userId && item.surface === "chat" && item.source === "agent").map((item) => item.id));
+    return db.assets
+        .filter((item) => conversationIds.has(item.conversationId) && item.userId === userId && item.status === "ready" && (item.type === "image" || item.type === "video") && Boolean(item.sourceRunId && item.sourceTaskId))
+        .sort((a, b) => b.createdAt - a.createdAt || b.ordinal - a.ordinal)
+        .slice(0, boundedLimit);
+}
+
 export async function getCreativeAsset(id: string, userId: string) {
     if (getDatabaseProvider() === "postgres") {
         await ensurePostgresSchema();

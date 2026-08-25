@@ -2,13 +2,21 @@ import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth/session";
 import { CREATIVE_UPLOAD_MAX_BYTES } from "@/lib/creative-upload";
-import { CreativeRuntimeServiceError, uploadAssetForUser } from "@/lib/server/creative-runtime-service";
+import { CreativeRuntimeServiceError, listRecentAssetsForUser, uploadAssetForUser } from "@/lib/server/creative-runtime-service";
 import { readRequestBodyBytes, RequestBodyTooLargeError } from "@/lib/server/request-body-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_UPLOAD_REQUEST_BYTES = CREATIVE_UPLOAD_MAX_BYTES + 64 * 1024;
+
+export async function GET(request: Request) {
+    const user = await getCurrentUser();
+    if (!user) return NextResponse.json({ code: 401, data: null, msg: "请先登录" }, { status: 401 });
+    const requestedLimit = Number(new URL(request.url).searchParams.get("limit") || 80);
+    const assets = await listRecentAssetsForUser(user.id, Number.isFinite(requestedLimit) ? requestedLimit : 80);
+    return NextResponse.json({ code: 0, data: { assets }, msg: "OK" });
+}
 
 export async function POST(request: Request) {
     const user = await getCurrentUser();

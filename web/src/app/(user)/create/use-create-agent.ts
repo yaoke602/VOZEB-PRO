@@ -15,6 +15,7 @@ import {
     listCreativeAssets,
     listCreativeConversationPage,
     listCreativeMessages,
+    listRecentCreativeAssets,
     retryCreativeAgentTask,
     retryCreativeAgentTasks,
     updateCreativeConversation,
@@ -62,6 +63,8 @@ export function useCreateAgent() {
     const [conversations, setConversations] = useState<CreativeConversation[]>([]);
     const [messages, setMessages] = useState<CreativeMessage[]>([]);
     const [assets, setAssets] = useState<CreativeAsset[]>([]);
+    const [recentGeneratedAssets, setRecentGeneratedAssets] = useState<CreativeAsset[]>([]);
+    const [recentAssetsLoading, setRecentAssetsLoading] = useState(true);
     const [conversationId, setConversationId] = useState<string>();
     const [activeRunId, setActiveRunId] = useState<string>();
     const [activeRunStatus, setActiveRunStatus] = useState<CreativeAgentRun["status"]>();
@@ -82,7 +85,8 @@ export function useCreateAgent() {
     const addDraftAttachments = useCreateDraftAttachmentsStore((state) => state.add);
     const removeDraftAttachments = useCreateDraftAttachmentsStore((state) => state.remove);
     const clearDraftAttachments = useCreateDraftAttachmentsStore((state) => state.clear);
-    const allAssets = useMemo(() => [...assets, ...draftAttachments.map((item) => item.asset)], [assets, draftAttachments]);
+    const historyAssets = useMemo(() => mergeRecentGeneratedAssets(assets, recentGeneratedAssets), [assets, recentGeneratedAssets]);
+    const allAssets = useMemo(() => uniqueAssets([...assets, ...recentGeneratedAssets, ...draftAttachments.map((item) => item.asset)]), [assets, draftAttachments, recentGeneratedAssets]);
     const selectedAssetIdsWithDrafts = useMemo(() => Array.from(new Set([...selectedAssetIds, ...draftAttachments.map((item) => item.asset.id)])), [draftAttachments, selectedAssetIds]);
 
     const stopWatching = useCallback(() => {
@@ -121,10 +125,20 @@ export function useCreateAgent() {
         }
     }, []);
 
+    const refreshRecentGeneratedAssets = useCallback(async () => {
+        setRecentAssetsLoading(true);
+        try {
+            setRecentGeneratedAssets(await listRecentCreativeAssets());
+        } finally {
+            setRecentAssetsLoading(false);
+        }
+    }, []);
+
     const refreshAssets = useCallback(async (id: string, generation = conversationGenerationRef.current) => {
         const nextAssets = await listCreativeAssets(id);
         if (generation !== conversationGenerationRef.current || activeConversationRef.current !== id) return;
         setAssets(nextAssets);
+        setRecentGeneratedAssets((current) => mergeRecentGeneratedAssets(nextAssets, current));
     }, []);
 
     const refreshConversation = useCallback(async (id: string, generation = conversationGenerationRef.current) => {
@@ -137,6 +151,7 @@ export function useCreateAgent() {
         setMessages(uniqueMessages(nextMessages));
         setHasOlderMessages(Boolean(nextMessages[0] && nextMessages[0].sequence > 1));
         setAssets(nextAssets);
+        setRecentGeneratedAssets((current) => mergeRecentGeneratedAssets(nextAssets, current));
         setSelectedAssetIds([]);
         setRunDetails(Object.fromEntries(runs.filter((run): run is CreativeAgentRun => Boolean(run && run.conversationId === id)).map((run) => [run.id, run])));
         const handoffs = nextMessages
@@ -225,7 +240,7 @@ export function useCreateAgent() {
     useEffect(() => {
         let active = true;
         const requestedConversationId = createConversationIdFromSearch(window.location.search);
-        const conversationsRequest = refreshConversations().catch(() => undefined);
+        const conversationsRequest = Promise.all([refreshConversations(), refreshRecentGeneratedAssets()]).catch(() => undefined);
         if (!requestedConversationId) {
             void Promise.all([conversationsRequest, listCreativeAgentRuns("chat", { activeOnly: true, limit: 1 })])
                 .then(([, runs]) => {
@@ -239,7 +254,7 @@ export function useCreateAgent() {
             active = false;
             stopWatching();
         };
-    }, [openConversation, refreshConversations, stopWatching]);
+    }, [openConversation, refreshConversations, refreshRecentGeneratedAssets, stopWatching]);
 
     const updateAssistant = useCallback((id: string, content?: string, status: CreativeMessage["status"] = "running") => {
         setMessages((current) => current.map((item) => (item.id === id ? { ...item, content: content?.trim() || item.content, status, updatedAt: Date.now() } : item)));
@@ -581,15 +596,17 @@ export function useCreateAgent() {
             const uniqueIds = Array.from(new Set(ids));
             await deleteCreativeConversations(uniqueIds);
             if (uniqueIds.includes(activeConversationRef.current || "")) newConversation();
-            await refreshConversations();
+            await Promise.all([refreshConversations(), refreshRecentGeneratedAssets()]);
         },
-        [newConversation, refreshConversations],
+        [newConversation, refreshConversations, refreshRecentGeneratedAssets],
     );
 
     return {
         conversations,
         messages,
         assets,
+        historyAssets,
+        recentAssetsLoading,
         conversationId,
         activeRunId,
         activeRunStatus,
@@ -634,6 +651,17 @@ export function useCreateAgent() {
 
 function uniqueMessages(messages: CreativeMessage[]) {
     return Array.from(new Map(messages.map((item) => [item.id, item])).values()).sort((a, b) => a.sequence - b.sequence);
+}
+
+function uniqueAssets(assets: CreativeAsset[]) {
+    return Array.from(new Map(assets.map((asset) => [asset.id, asset])).values());
+}
+
+function mergeRecentGeneratedAssets(...groups: CreativeAsset[][]) {
+    return uniqueAssets(groups.flat())
+        .filter((asset) => asset.status === "ready" && (asset.type === "image" || asset.type === "video") && Boolean(asset.sourceRunId && asset.sourceTaskId))
+        .sort((left, right) => right.createdAt - left.createdAt || right.ordinal - left.ordinal)
+        .slice(0, 100);
 }
 
 function remapDraftAssetIds(preferences: CreativeGenerationPreferences | undefined, replacements: Map<string, CreativeAsset>) {

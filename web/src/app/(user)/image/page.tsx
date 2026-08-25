@@ -1,5 +1,1 @@
-import { redirect } from "next/navigation";
-
-export default function ImageRedirectPage() {
-    redirect("/create");
-}
+export { default } from "../create/page";

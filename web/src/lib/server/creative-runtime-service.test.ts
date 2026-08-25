@@ -17,6 +17,7 @@ vi.mock("@/lib/server/creative-runtime-store", () => ({
     listCreativeAssets: vi.fn(),
     listCreativeConversations: vi.fn(),
     listCreativeMessages: vi.fn(),
+    listRecentCreativeMediaAssetsForUser: vi.fn(),
     registerCreativeAssets: mocks.registerCreativeAssets,
     updateCreativeConversation: vi.fn(),
 }));

@@ -18,7 +18,7 @@ const sectionHintClass = "mt-1 text-xs text-[#8b949f] dark:text-[#7f8996]";
 const panelClass = "rounded-lg border border-[#e2e7eb] bg-white dark:border-[#2b3037] dark:bg-[#181b20]";
 const recentAssetVisibilityClasses = ["", "", "hidden sm:block", "hidden lg:block", "hidden xl:block", "hidden 2xl:block"];
 
-export function CreateWorkbenchOverview({ onUseAsset }: { onUseAsset: (asset: CreateOverviewAsset) => Promise<void> }) {
+export function CreateWorkbenchOverview({ onUseAsset, recentOnly = false }: { onUseAsset: (asset: CreateOverviewAsset) => Promise<void>; recentOnly?: boolean }) {
     const { latestProject, runningTasks, recentAssets, loading, error, reload } = useCreateWorkbenchOverview();
     const [importingAssetId, setImportingAssetId] = useState("");
 
@@ -32,7 +32,7 @@ export function CreateWorkbenchOverview({ onUseAsset }: { onUseAsset: (asset: Cr
     };
 
     return (
-        <div className="mt-3 w-full space-y-3 pb-3 sm:mt-12 sm:space-y-9 sm:pb-8">
+        <div className={cn("w-full space-y-3 pb-3", recentOnly ? "mt-5 sm:mt-7" : "mt-3 sm:mt-12 sm:space-y-9 sm:pb-8")}>
             <section aria-labelledby="create-assets-heading">
                 <div className="flex items-end justify-between gap-3 border-b border-[#e8ebef] pb-3 dark:border-[#292d33]">
                     <div>
@@ -59,23 +59,25 @@ export function CreateWorkbenchOverview({ onUseAsset }: { onUseAsset: (asset: Cr
                 {!loading && !error && !recentAssets.length ? <OverviewEmpty label="完成一次图片或视频生成后，结果会出现在这里" /> : null}
             </section>
 
-            <section aria-labelledby="create-projects-heading">
-                <div className="flex items-end justify-between gap-3 border-b border-[#e8ebef] pb-3 dark:border-[#292d33]">
-                    <div>
-                        <h2 id="create-projects-heading" className={sectionTitleClass}>
-                            项目与任务
-                        </h2>
-                        <p className={sectionHintClass}>回到最近的项目，或查看仍在运行的任务</p>
+            {!recentOnly ? (
+                <section aria-labelledby="create-projects-heading">
+                    <div className="flex items-end justify-between gap-3 border-b border-[#e8ebef] pb-3 dark:border-[#292d33]">
+                        <div>
+                            <h2 id="create-projects-heading" className={sectionTitleClass}>
+                                项目与任务
+                            </h2>
+                            <p className={sectionHintClass}>回到最近的项目，或查看仍在运行的任务</p>
+                        </div>
+                        <Link href="/canvas" className="inline-flex shrink-0 items-center gap-1 text-xs text-[#697381] transition hover:text-[#20242a] dark:text-[#9aa3af] dark:hover:text-white">
+                            全部项目 <ArrowUpRight className="size-3.5" />
+                        </Link>
                     </div>
-                    <Link href="/canvas" className="inline-flex shrink-0 items-center gap-1 text-xs text-[#697381] transition hover:text-[#20242a] dark:text-[#9aa3af] dark:hover:text-white">
-                        全部项目 <ArrowUpRight className="size-3.5" />
-                    </Link>
-                </div>
-                <div className="mt-2 grid gap-2 lg:grid-cols-[minmax(0,1.55fr)_minmax(280px,0.9fr)] sm:mt-3 sm:gap-3">
-                    <LatestProjectCard project={latestProject} loading={loading} error={error} onRetry={reload} />
-                    <RunningTasksCard tasks={runningTasks} loading={loading} error={error} onRetry={reload} />
-                </div>
-            </section>
+                    <div className="mt-2 grid gap-2 lg:grid-cols-[minmax(0,1.55fr)_minmax(280px,0.9fr)] sm:mt-3 sm:gap-3">
+                        <LatestProjectCard project={latestProject} loading={loading} error={error} onRetry={reload} />
+                        <RunningTasksCard tasks={runningTasks} loading={loading} error={error} onRetry={reload} />
+                    </div>
+                </section>
+            ) : null}
 
             {loading ? <span className="sr-only">正在加载工作台概览</span> : null}
         </div>

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
     getCurrentUser: vi.fn(),
+    listRecentAssetsForUser: vi.fn(),
     uploadAssetForUser: vi.fn(),
 }));
 
@@ -15,10 +16,35 @@ vi.mock("@/lib/server/creative-runtime-service", () => ({
             super(message);
         }
     },
+    listRecentAssetsForUser: mocks.listRecentAssetsForUser,
     uploadAssetForUser: mocks.uploadAssetForUser,
 }));
 
-import { POST } from "./route";
+import { GET, POST } from "./route";
+
+describe("GET /api/creative/assets", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mocks.getCurrentUser.mockResolvedValue({ id: "user-one" });
+        mocks.listRecentAssetsForUser.mockResolvedValue([{ id: "asset-one", type: "image" }]);
+    });
+
+    it("returns recent generated media without opening each conversation", async () => {
+        const response = await GET(new Request("http://localhost/api/creative/assets?limit=40"));
+
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({ code: 0, data: { assets: [{ id: "asset-one" }] } });
+        expect(mocks.listRecentAssetsForUser).toHaveBeenCalledWith("user-one", 40);
+    });
+
+    it("requires authentication", async () => {
+        mocks.getCurrentUser.mockResolvedValue(null);
+        const response = await GET(new Request("http://localhost/api/creative/assets"));
+
+        expect(response.status).toBe(401);
+        expect(mocks.listRecentAssetsForUser).not.toHaveBeenCalled();
+    });
+});
 
 describe("POST /api/creative/assets", () => {
     beforeEach(() => {

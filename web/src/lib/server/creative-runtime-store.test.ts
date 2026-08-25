@@ -38,6 +38,7 @@ import {
     getCreativeRunByClientRequestId,
     listCreativeConversations,
     listCreativeMessages,
+    listRecentCreativeMediaAssetsForUser,
     listCreativeRunEvents,
     mutateCreativeRun,
     registerCreativeAssets,
@@ -177,6 +178,47 @@ describe("creative runtime file provider", () => {
 
         expect(second[0]).toMatchObject({ id: first[0].id, title: "更新标题" });
         expect((mocks.files.get("creative-runtime.json") as { assets: unknown[] }).assets).toHaveLength(1);
+    });
+
+    it("lists recent generated media across the user's Agent conversations", async () => {
+        const conversation = await createCreativeConversation("user", { surface: "chat", source: "agent", title: "生图历史" });
+        const otherSurface = await createCreativeConversation("user", { surface: "canvas", source: "canvas", title: "画布" });
+        await registerCreativeAssets([
+            {
+                userId: "user",
+                conversationId: conversation.id,
+                sourceRunId: "run-image",
+                sourceTaskId: "task-image",
+                ordinal: 0,
+                type: "image",
+                title: "历史图片",
+                remoteUrl: "https://cdn.example.com/history.png",
+                storageKind: "remote",
+            },
+            {
+                userId: "user",
+                conversationId: conversation.id,
+                sourceRunId: "upload",
+                ordinal: 0,
+                type: "image",
+                title: "上传参考图",
+                remoteUrl: "https://cdn.example.com/reference.png",
+                storageKind: "remote",
+            },
+            {
+                userId: "user",
+                conversationId: otherSurface.id,
+                sourceRunId: "run-canvas",
+                sourceTaskId: "task-canvas",
+                ordinal: 0,
+                type: "video",
+                title: "画布视频",
+                remoteUrl: "https://cdn.example.com/canvas.mp4",
+                storageKind: "remote",
+            },
+        ]);
+
+        await expect(listRecentCreativeMediaAssetsForUser("user", 20)).resolves.toMatchObject([{ title: "历史图片", type: "image" }]);
     });
 
     it("rejects foreign assets and immutable conversation scope changes", async () => {

@@ -10,11 +10,11 @@ describe("workspace sidebar", () => {
 
         expect(shell).toContain("const [sidebarExpanded, setSidebarExpanded] = useState(true)");
         expect(shell).toContain("expanded={sidebarExpanded}");
-        expect(sidebar).toContain('expanded ? "w-44" : "w-[72px]"');
+        expect(sidebar).toContain('expanded ? "w-60" : "w-[72px]"');
         expect(sidebar).toContain("hide-scrollbar min-h-0 flex-1 overflow-y-auto");
         expect(sidebar).not.toContain("thin-scrollbar min-h-0 flex-1 overflow-y-auto");
         expect(sidebar).toContain('<CircleHelp className="size-[18px] shrink-0" />');
-        expect(sidebar).not.toContain("userAvatarFallback");
+        expect(sidebar).toContain("userAvatarFallback");
         expect(sidebar).not.toContain("workspaceUrl");
         expect(sidebar).not.toContain("window.location.host");
     });

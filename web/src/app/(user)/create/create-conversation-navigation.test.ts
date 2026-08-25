@@ -10,6 +10,12 @@ describe("create conversation navigation", () => {
         expect(createConversationIdFromSearch(href.split("?")[1])).toBe("conversation / one");
     });
 
+    it("keeps dedicated workbench conversations on their current surface", () => {
+        expect(createConversationHref("conversation-one", "/image")).toBe("/image?conversationId=conversation-one");
+        expect(createConversationHref("conversation-one", "/video")).toBe("/video?conversationId=conversation-one");
+        expect(createConversationHref("conversation-one", "/unknown")).toBe("/create?conversationId=conversation-one");
+    });
+
     it("ignores empty conversation ids", () => {
         expect(createConversationIdFromSearch("?conversationId=%20%20")).toBe("");
     });

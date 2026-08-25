@@ -68,6 +68,7 @@ export function CreativeComposer({
     onRemoveVideoFrame,
     centered = false,
     compact = false,
+    modeLocked = false,
     onExpand,
 }: {
     inputRef: RefObject<TextAreaRef | null>;
@@ -107,6 +108,7 @@ export function CreativeComposer({
     onRemoveVideoFrame: (role: Extract<VideoReferenceRole, "first_frame" | "last_frame">) => void;
     centered?: boolean;
     compact?: boolean;
+    modeLocked?: boolean;
     onExpand?: () => void;
 }) {
     const [ready, setReady] = useState(false);
@@ -423,64 +425,71 @@ export function CreativeComposer({
                 </div>
                 <div className="flex min-w-0 items-center gap-2 px-0.5 pb-0.5 pt-2">
                     <div className="hide-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto sm:gap-2">
-                        <Popover
-                            trigger="click"
-                            placement={composerPopoverPlacement}
-                            autoAdjustOverflow={creativeComposerPopoverOverflow(composerPopoverPlacement)}
-                            arrow={false}
-                            open={modePickerOpen}
-                            onOpenChange={setModePickerOpen}
-                            content={
-                                <div className="hide-scrollbar max-h-[calc(100vh-160px)] w-[calc(100vw-56px)] max-w-[300px] overflow-y-auto py-1 sm:w-72 sm:max-w-none">
-                                    <p className="px-2 pb-2 text-sm font-semibold text-[#20242a] dark:text-[#f3f5f7]">创作类型</p>
-                                    <div className="space-y-1">
-                                        {creativeModeOptions.map((option) => {
-                                            const selected = option.value === creationMode;
-                                            return (
-                                                <button
-                                                    key={option.value}
-                                                    type="button"
-                                                    className={cn(
-                                                        "flex min-h-12 w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition hover:bg-[#eef3f6] dark:hover:bg-[#29323a]",
-                                                        selected ? "text-[#20242a] dark:text-white" : "text-[#4f5a67] dark:text-[#bec6cf]",
-                                                    )}
-                                                    onClick={() => {
-                                                        onChangeCreationMode(option.value);
-                                                        setModePickerOpen(false);
-                                                    }}
-                                                >
-                                                    <span
+                        {modeLocked ? (
+                            <span className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-[#f0f3f7] px-2.5 text-xs font-medium text-[#40506a] dark:bg-[#292f37] dark:text-[#d5dce5]" aria-label={`当前创作类型：${currentMode.label}`}>
+                                <CreativeModeIcon mode={creationMode} />
+                                <span className="hidden sm:inline">{currentMode.label}</span>
+                            </span>
+                        ) : (
+                            <Popover
+                                trigger="click"
+                                placement={composerPopoverPlacement}
+                                autoAdjustOverflow={creativeComposerPopoverOverflow(composerPopoverPlacement)}
+                                arrow={false}
+                                open={modePickerOpen}
+                                onOpenChange={setModePickerOpen}
+                                content={
+                                    <div className="hide-scrollbar max-h-[calc(100vh-160px)] w-[calc(100vw-56px)] max-w-[300px] overflow-y-auto py-1 sm:w-72 sm:max-w-none">
+                                        <p className="px-2 pb-2 text-sm font-semibold text-[#20242a] dark:text-[#f3f5f7]">创作类型</p>
+                                        <div className="space-y-1">
+                                            {creativeModeOptions.map((option) => {
+                                                const selected = option.value === creationMode;
+                                                return (
+                                                    <button
+                                                        key={option.value}
+                                                        type="button"
                                                         className={cn(
-                                                            "grid size-8 shrink-0 place-items-center rounded-lg",
-                                                            selected ? "bg-white text-[#28738e] shadow-sm dark:bg-[#394550] dark:text-[#8ec7da]" : "bg-[#f2f4f6] text-[#7b8692] dark:bg-[#30363e] dark:text-[#a0aab5]",
+                                                            "flex min-h-12 w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition hover:bg-[#eef3f6] dark:hover:bg-[#29323a]",
+                                                            selected ? "text-[#20242a] dark:text-white" : "text-[#4f5a67] dark:text-[#bec6cf]",
                                                         )}
+                                                        onClick={() => {
+                                                            onChangeCreationMode(option.value);
+                                                            setModePickerOpen(false);
+                                                        }}
                                                     >
-                                                        <CreativeModeIcon mode={option.value} />
-                                                    </span>
-                                                    <span className="min-w-0 flex-1">
-                                                        <span className="block text-xs font-medium">{option.label}</span>
-                                                        <span className="mt-0.5 block truncate text-[11px] text-[#8b949f] dark:text-[#7f8996]">{option.description}</span>
-                                                    </span>
-                                                    {selected ? <Check className="size-4 shrink-0" /> : null}
-                                                </button>
-                                            );
-                                        })}
+                                                        <span
+                                                            className={cn(
+                                                                "grid size-8 shrink-0 place-items-center rounded-lg",
+                                                                selected ? "bg-white text-[#28738e] shadow-sm dark:bg-[#394550] dark:text-[#8ec7da]" : "bg-[#f2f4f6] text-[#7b8692] dark:bg-[#30363e] dark:text-[#a0aab5]",
+                                                            )}
+                                                        >
+                                                            <CreativeModeIcon mode={option.value} />
+                                                        </span>
+                                                        <span className="min-w-0 flex-1">
+                                                            <span className="block text-xs font-medium">{option.label}</span>
+                                                            <span className="mt-0.5 block truncate text-[11px] text-[#8b949f] dark:text-[#7f8996]">{option.description}</span>
+                                                        </span>
+                                                        {selected ? <Check className="size-4 shrink-0" /> : null}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
                                     </div>
-                                </div>
-                            }
-                        >
-                            <Button
-                                type="text"
-                                className={creativeComposerToolButtonClass(modePickerOpen)}
-                                icon={<CreativeModeIcon mode={creationMode} />}
-                                aria-label={`当前创作类型：${currentMode.label}`}
-                                aria-haspopup="menu"
-                                aria-expanded={modePickerOpen}
+                                }
                             >
-                                <span className="hidden text-xs font-medium sm:inline">{currentMode.label}</span>
-                                <ChevronDown className="hidden size-3.5 sm:block" />
-                            </Button>
-                        </Popover>
+                                <Button
+                                    type="text"
+                                    className={creativeComposerToolButtonClass(modePickerOpen)}
+                                    icon={<CreativeModeIcon mode={creationMode} />}
+                                    aria-label={`当前创作类型：${currentMode.label}`}
+                                    aria-haspopup="menu"
+                                    aria-expanded={modePickerOpen}
+                                >
+                                    <span className="hidden text-xs font-medium sm:inline">{currentMode.label}</span>
+                                    <ChevronDown className="hidden size-3.5 sm:block" />
+                                </Button>
+                            </Popover>
+                        )}
                         <CreativeGenerationControls
                             models={models}
                             selectedModels={selectedModels}

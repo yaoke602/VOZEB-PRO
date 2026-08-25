@@ -11,10 +11,10 @@ describe("user navigation order", () => {
         ]);
     });
 
-    it("keeps the unified Agent as the only generation entry in workspace navigation", () => {
+    it("places the dedicated image and video workbenches before project tools", () => {
         expect(navigationGroups.map((group) => group.label)).toEqual(["创作", "项目", "资产", "社区"]);
-        expect(navigationTools.map((tool) => tool.slug)).not.toContain("image");
-        expect(navigationTools.map((tool) => tool.slug)).not.toContain("video");
+        expect(navigationTools.filter((tool) => tool.group === "create").map((tool) => tool.slug)).toEqual(["create", "image", "video"]);
+        expect(navigationTools.findIndex((tool) => tool.slug === "video")).toBeLessThan(navigationTools.findIndex((tool) => tool.slug === "canvas"));
     });
 
     it("keeps published works and personal assets in the requested asset order", () => {
