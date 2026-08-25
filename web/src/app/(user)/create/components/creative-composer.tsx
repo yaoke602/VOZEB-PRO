@@ -298,7 +298,7 @@ export function CreativeComposer({
                         </Tooltip>
                     </div>
                     {composerInput(true)}
-                    <Tooltip title="引用当前对话资产">
+                    <Tooltip title="引用已上传、历史或素材库资源">
                         <Button
                             type="text"
                             className="!size-11 !min-w-11 !shrink-0 !rounded-xl !text-[#66717e] hover:!bg-[#f2f4f6] hover:!text-[#20242a] dark:!text-[#a3acb7] dark:hover:!bg-[#292f37] dark:hover:!text-white"
@@ -308,7 +308,7 @@ export function CreativeComposer({
                                 event.stopPropagation();
                                 openAssetMention();
                             }}
-                            aria-label="引用当前对话资产"
+                            aria-label="引用已上传、历史或素材库资源"
                         />
                     </Tooltip>
                     <Tooltip title="优化提示词">
@@ -503,14 +503,14 @@ export function CreativeComposer({
                             onCapabilityChange={onChangeGenerationCapability}
                             onChangeGenerationPreference={onChangeGenerationPreference}
                         />
-                        <Tooltip title="引用当前对话资产">
+                        <Tooltip title="引用已上传、历史或素材库资源">
                             <Button
                                 type="text"
                                 className={creativeComposerToolButtonClass(mentionQuery !== null)}
                                 icon={<AtSign className="size-4" />}
                                 onMouseDown={(event) => event.preventDefault()}
                                 onClick={openAssetMention}
-                                aria-label="引用当前对话资产"
+                                aria-label="引用已上传、历史或素材库资源"
                             >
                                 <span className="hidden text-xs font-medium sm:inline">引用</span>
                             </Button>

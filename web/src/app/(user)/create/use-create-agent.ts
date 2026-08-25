@@ -4,6 +4,7 @@ import { nanoid } from "nanoid";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isCreativeProjectHandoff, type CreativeAsset, type CreativeConversation, type CreativeGenerationPreferences, type CreativeMessage, type CreativeProjectHandoff } from "@/lib/creative-runtime-contract";
+import type { Asset as LibraryAsset } from "@/lib/library-asset-contract";
 import {
     deleteCreativeConversations,
     controlCreativeAgentRun,
@@ -11,6 +12,7 @@ import {
     createCreativeConversation,
     getCreativeConversation,
     getCreativeAgentRun,
+    importCreativeLibraryAsset,
     listCreativeAgentRuns,
     listCreativeAssets,
     listCreativeConversationPage,
@@ -23,6 +25,7 @@ import {
     watchCreativeAgentRun,
     type CreativeAgentRun,
 } from "@/services/api/creative";
+import { listLibraryAssets } from "@/services/api/library-assets";
 import { getMaterializedCreativeProject, materializeCreativeProjectHandoff, type MaterializedCreativeProject } from "@/services/creative-project-handoff";
 import { agentRequirementAcknowledgement } from "@/lib/agent-requirement-acknowledgement";
 
@@ -64,6 +67,7 @@ export function useCreateAgent() {
     const [messages, setMessages] = useState<CreativeMessage[]>([]);
     const [assets, setAssets] = useState<CreativeAsset[]>([]);
     const [recentGeneratedAssets, setRecentGeneratedAssets] = useState<CreativeAsset[]>([]);
+    const [libraryReferenceAssets, setLibraryReferenceAssets] = useState<CreativeAsset[]>([]);
     const [recentAssetsLoading, setRecentAssetsLoading] = useState(true);
     const [conversationId, setConversationId] = useState<string>();
     const [activeRunId, setActiveRunId] = useState<string>();
@@ -86,7 +90,7 @@ export function useCreateAgent() {
     const removeDraftAttachments = useCreateDraftAttachmentsStore((state) => state.remove);
     const clearDraftAttachments = useCreateDraftAttachmentsStore((state) => state.clear);
     const historyAssets = useMemo(() => mergeRecentGeneratedAssets(assets, recentGeneratedAssets), [assets, recentGeneratedAssets]);
-    const allAssets = useMemo(() => uniqueAssets([...assets, ...recentGeneratedAssets, ...draftAttachments.map((item) => item.asset)]), [assets, draftAttachments, recentGeneratedAssets]);
+    const allAssets = useMemo(() => uniqueAssets([...draftAttachments.map((item) => item.asset), ...assets, ...recentGeneratedAssets, ...libraryReferenceAssets]), [assets, draftAttachments, libraryReferenceAssets, recentGeneratedAssets]);
     const selectedAssetIdsWithDrafts = useMemo(() => Array.from(new Set([...selectedAssetIds, ...draftAttachments.map((item) => item.asset.id)])), [draftAttachments, selectedAssetIds]);
 
     const stopWatching = useCallback(() => {
@@ -132,6 +136,11 @@ export function useCreateAgent() {
         } finally {
             setRecentAssetsLoading(false);
         }
+    }, []);
+
+    const refreshLibraryReferenceAssets = useCallback(async () => {
+        const libraryAssets = await listLibraryAssets();
+        setLibraryReferenceAssets(libraryAssets.map(libraryAssetAsCreativeAsset).filter((asset): asset is CreativeAsset => Boolean(asset)));
     }, []);
 
     const refreshAssets = useCallback(async (id: string, generation = conversationGenerationRef.current) => {
@@ -240,7 +249,7 @@ export function useCreateAgent() {
     useEffect(() => {
         let active = true;
         const requestedConversationId = createConversationIdFromSearch(window.location.search);
-        const conversationsRequest = Promise.all([refreshConversations(), refreshRecentGeneratedAssets()]).catch(() => undefined);
+        const conversationsRequest = Promise.all([refreshConversations(), refreshRecentGeneratedAssets(), refreshLibraryReferenceAssets()]).catch(() => undefined);
         if (!requestedConversationId) {
             void Promise.all([conversationsRequest, listCreativeAgentRuns("chat", { activeOnly: true, limit: 1 })])
                 .then(([, runs]) => {
@@ -254,7 +263,7 @@ export function useCreateAgent() {
             active = false;
             stopWatching();
         };
-    }, [openConversation, refreshConversations, refreshRecentGeneratedAssets, stopWatching]);
+    }, [openConversation, refreshConversations, refreshLibraryReferenceAssets, refreshRecentGeneratedAssets, stopWatching]);
 
     const updateAssistant = useCallback((id: string, content?: string, status: CreativeMessage["status"] = "running") => {
         setMessages((current) => current.map((item) => (item.id === id ? { ...item, content: content?.trim() || item.content, status, updatedAt: Date.now() } : item)));
@@ -309,7 +318,10 @@ export function useCreateAgent() {
     const materializeDraftAttachments = useCallback(
         async (assetIds: string[], generation: number, submissionConversationId?: string) => {
             const drafts = assetIds.map((id) => ({ id, draft: getCreateDraftAttachment(id) })).filter((item): item is { id: string; draft: NonNullable<ReturnType<typeof getCreateDraftAttachment>> } => Boolean(item.draft));
-            if (!drafts.length) return { conversationId: submissionConversationId, assetIds, replacements: new Map<string, CreativeAsset>() };
+            const libraryAssets = assetIds
+                .map((id) => ({ id, libraryAssetId: libraryReferenceAssets.find((asset) => asset.id === id)?.metadata.libraryAssetId }))
+                .filter((item): item is { id: string; libraryAssetId: string } => typeof item.libraryAssetId === "string" && Boolean(item.libraryAssetId));
+            if (!drafts.length && !libraryAssets.length) return { conversationId: submissionConversationId, assetIds, replacements: new Map<string, CreativeAsset>() };
             const replacements = new Map<string, CreativeAsset>();
             if (isCurrentConversation(submissionConversationId, generation)) setUploading(true);
             let materializedConversationId = submissionConversationId;
@@ -318,18 +330,21 @@ export function useCreateAgent() {
                 for (const { id, draft } of drafts) {
                     replacements.set(id, await uploadCreativeAsset(materializedConversationId, draft.file));
                 }
+                for (const { id, libraryAssetId } of libraryAssets) {
+                    replacements.set(id, await importCreativeLibraryAsset(materializedConversationId, libraryAssetId));
+                }
                 return { conversationId: materializedConversationId, assetIds: assetIds.map((assetId) => replacements.get(assetId)?.id || assetId), replacements };
             } finally {
                 if (isCurrentConversation(materializedConversationId, generation) && replacements.size) {
-                    const uploadedAssets = Array.from(replacements.values());
-                    setAssets((current) => [...current, ...uploadedAssets.filter((asset) => !current.some((item) => item.id === asset.id))]);
-                    setSelectedAssetIds((current) => Array.from(new Set([...current, ...uploadedAssets.map((asset) => asset.id)])));
-                    removeDraftAttachments(replacements.keys());
+                    const materializedAssets = Array.from(replacements.values());
+                    setAssets((current) => [...current, ...materializedAssets.filter((asset) => !current.some((item) => item.id === asset.id))]);
+                    setSelectedAssetIds((current) => Array.from(new Set(current.map((id) => replacements.get(id)?.id || id))));
+                    removeDraftAttachments(drafts.filter(({ id }) => replacements.has(id)).map(({ id }) => id));
                 }
                 if (isCurrentConversation(materializedConversationId, generation)) setUploading(false);
             }
         },
-        [ensureConversation, isCurrentConversation, removeDraftAttachments],
+        [ensureConversation, isCurrentConversation, libraryReferenceAssets, removeDraftAttachments],
     );
 
     const watchRun = useCallback(
@@ -605,6 +620,7 @@ export function useCreateAgent() {
         conversations,
         messages,
         assets,
+        referenceAssets: allAssets,
         historyAssets,
         recentAssetsLoading,
         conversationId,
@@ -662,6 +678,36 @@ function mergeRecentGeneratedAssets(...groups: CreativeAsset[][]) {
         .filter((asset) => asset.status === "ready" && (asset.type === "image" || asset.type === "video") && Boolean(asset.sourceRunId && asset.sourceTaskId))
         .sort((left, right) => right.createdAt - left.createdAt || right.ordinal - left.ordinal)
         .slice(0, 100);
+}
+
+function libraryAssetAsCreativeAsset(asset: LibraryAsset, ordinal: number): CreativeAsset | undefined {
+    if (asset.kind === "text") return undefined;
+    const data = asset.data;
+    const fallbackUrl = "dataUrl" in data ? data.dataUrl : data.url;
+    const stableUrl = data.serverUrl || data.remoteUrl || (/^(?:\/|https?:\/\/)/i.test(fallbackUrl) ? fallbackUrl : "");
+    if (!stableUrl) return undefined;
+    const createdAt = Date.parse(asset.createdAt) || 0;
+    const updatedAt = Date.parse(asset.updatedAt) || createdAt;
+    return {
+        id: `library:${asset.id}`,
+        userId: "library",
+        conversationId: "",
+        ordinal,
+        type: asset.kind,
+        status: "ready",
+        title: asset.title,
+        storageKey: data.storageKey,
+        serverUrl: data.serverUrl || (stableUrl.startsWith("/") ? stableUrl : undefined),
+        remoteUrl: data.remoteUrl || (/^https?:\/\//i.test(stableUrl) ? stableUrl : undefined),
+        mimeType: data.mimeType,
+        width: "width" in data ? data.width : undefined,
+        height: "height" in data ? data.height : undefined,
+        durationMs: "durationMs" in data ? data.durationMs : undefined,
+        bytes: data.bytes,
+        metadata: { source: "library", libraryAssetId: asset.id, ...(asset.coverUrl ? { coverUrl: asset.coverUrl } : {}) },
+        createdAt,
+        updatedAt,
+    };
 }
 
 function remapDraftAssetIds(preferences: CreativeGenerationPreferences | undefined, replacements: Map<string, CreativeAsset>) {

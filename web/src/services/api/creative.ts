@@ -93,6 +93,14 @@ export function uploadCreativeAsset(conversationId: string, file: File) {
     return request<{ asset: CreativeAsset }>("/api/creative/assets", { method: "POST", body }).then((data) => data.asset);
 }
 
+export function importCreativeLibraryAsset(conversationId: string, libraryAssetId: string) {
+    return request<{ asset: CreativeAsset }>("/api/creative/assets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId, libraryAssetId }),
+    }).then((data) => data.asset);
+}
+
 export function createCreativeAgentRun(input: CreativeRunRequest) {
     return request<{ run: CreativeAgentRun; conversation?: CreativeConversation; created: boolean }>("/api/agent/runs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
 }

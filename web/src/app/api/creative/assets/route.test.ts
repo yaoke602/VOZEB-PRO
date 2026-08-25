@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
     getCurrentUser: vi.fn(),
     listRecentAssetsForUser: vi.fn(),
     uploadAssetForUser: vi.fn(),
+    importLibraryAssetForUser: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/session", () => ({ getCurrentUser: mocks.getCurrentUser }));
@@ -18,6 +19,7 @@ vi.mock("@/lib/server/creative-runtime-service", () => ({
     },
     listRecentAssetsForUser: mocks.listRecentAssetsForUser,
     uploadAssetForUser: mocks.uploadAssetForUser,
+    importLibraryAssetForUser: mocks.importLibraryAssetForUser,
 }));
 
 import { GET, POST } from "./route";
@@ -51,6 +53,7 @@ describe("POST /api/creative/assets", () => {
         vi.clearAllMocks();
         mocks.getCurrentUser.mockResolvedValue({ id: "user-one" });
         mocks.uploadAssetForUser.mockResolvedValue({ id: "asset-one", type: "audio" });
+        mocks.importLibraryAssetForUser.mockResolvedValue({ id: "asset-library", type: "image" });
     });
 
     it("requires authentication", async () => {
@@ -68,6 +71,21 @@ describe("POST /api/creative/assets", () => {
         expect(response.status).toBe(200);
         expect(await response.json()).toMatchObject({ code: 0, data: { asset: { id: "asset-one" } } });
         expect(mocks.uploadAssetForUser).toHaveBeenCalledWith("user-one", "conversation-one", expect.objectContaining({ name: "voice.mp3", type: "audio/mpeg" }));
+    });
+
+    it("imports an owned library resource as a creative reference", async () => {
+        const response = await POST(
+            new Request("http://localhost/api/creative/assets", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ conversationId: "conversation-one", libraryAssetId: "library-one" }),
+            }),
+        );
+
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({ code: 0, data: { asset: { id: "asset-library" } }, msg: "素材已引用" });
+        expect(mocks.importLibraryAssetForUser).toHaveBeenCalledWith("user-one", "conversation-one", "library-one");
+        expect(mocks.uploadAssetForUser).not.toHaveBeenCalled();
     });
 
     it("rejects a missing conversation before calling the service", async () => {

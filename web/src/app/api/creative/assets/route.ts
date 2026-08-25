@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 
+import { readJsonBody } from "@/lib/auth/request";
 import { getCurrentUser } from "@/lib/auth/session";
 import { CREATIVE_UPLOAD_MAX_BYTES } from "@/lib/creative-upload";
-import { CreativeRuntimeServiceError, listRecentAssetsForUser, uploadAssetForUser } from "@/lib/server/creative-runtime-service";
+import { CreativeRuntimeServiceError, importLibraryAssetForUser, listRecentAssetsForUser, uploadAssetForUser } from "@/lib/server/creative-runtime-service";
 import { readRequestBodyBytes, RequestBodyTooLargeError } from "@/lib/server/request-body-limit";
 
 export const runtime = "nodejs";
@@ -23,6 +24,15 @@ export async function POST(request: Request) {
     if (!user) return NextResponse.json({ code: 401, data: null, msg: "请先登录" }, { status: 401 });
     try {
         const contentType = request.headers.get("content-type") || "";
+        if (contentType.toLowerCase().includes("application/json")) {
+            const input = await readJsonBody<{ conversationId?: unknown; libraryAssetId?: unknown }>(request);
+            const conversationId = typeof input.conversationId === "string" ? input.conversationId.trim() : "";
+            const libraryAssetId = typeof input.libraryAssetId === "string" ? input.libraryAssetId.trim() : "";
+            if (!conversationId) throw new CreativeRuntimeServiceError("创作会话不能为空", 400);
+            if (!libraryAssetId) throw new CreativeRuntimeServiceError("请选择素材库资源", 400);
+            const asset = await importLibraryAssetForUser(user.id, conversationId, libraryAssetId);
+            return NextResponse.json({ code: 0, data: { asset }, msg: "素材已引用" });
+        }
         if (!contentType.toLowerCase().includes("multipart/form-data")) throw new CreativeRuntimeServiceError("上传内容格式不正确", 400);
         let form: FormData;
         try {

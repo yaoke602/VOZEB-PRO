@@ -599,7 +599,7 @@ export default function CreatePage() {
             onRemoveVideoFrame={removeVideoFrame}
             onAttachment={() => attachmentInputRef.current?.click()}
             onPasteImages={(files) => void uploadAttachments(files)}
-            referenceAssets={agent.assets}
+            referenceAssets={agent.referenceAssets}
             selectedAssetIds={agent.selectedAssetIds}
             onReferenceAsset={agent.selectAsset}
         />
@@ -689,6 +689,8 @@ export default function CreatePage() {
                     uploading={agent.uploading}
                     optimizing={optimizingPrompt}
                     references={imageReferences}
+                    referenceAssets={agent.referenceAssets}
+                    selectedAssetIds={agent.selectedAssetIds}
                     assets={agent.historyAssets}
                     messages={agent.messages}
                     runs={agent.runDetails}

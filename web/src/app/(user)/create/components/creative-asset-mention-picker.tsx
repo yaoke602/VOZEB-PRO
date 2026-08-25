@@ -54,22 +54,37 @@ export function CreativeAssetMentionPicker({ assets, selectedAssetIds, onSelect 
             ) : null}
             <div className="relative min-h-0 overflow-hidden">
                 <div ref={gridRef} className="hide-scrollbar grid max-h-[min(16rem,calc(100dvh-10rem))] grid-cols-4 gap-1.5 overflow-y-auto overscroll-contain p-0.5" data-testid={`creative-asset-mention-${visibleType}-grid`}>
-                    {visibleAssets.map((asset) => (
-                        <button
-                            key={asset.id}
-                            type="button"
-                            data-asset-id={asset.id}
-                            className={`group relative aspect-square min-w-0 overflow-hidden rounded-md border-2 bg-[#eef1f3] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6268d8] dark:bg-[#292f37] ${
-                                selected.has(asset.id) ? "border-[#6268d8] dark:border-[#a8abff]" : "border-transparent hover:border-[#c8ccef] dark:hover:border-[#60658f]"
-                            }`}
-                            onMouseDown={(event) => event.preventDefault()}
-                            onClick={() => onSelect(asset)}
-                            aria-label={`选择${asset.title}`}
-                            title={asset.title}
-                        >
-                            <AssetPreview asset={asset} />
-                        </button>
-                    ))}
+                    {visibleAssets.map((asset) => {
+                        const referenced = selected.has(asset.id);
+                        return (
+                            <article key={asset.id} className="min-w-0" title={asset.title}>
+                                <button
+                                    type="button"
+                                    data-asset-id={asset.id}
+                                    data-source={assetSourceLabel(asset)}
+                                    className={`group relative block aspect-square w-full min-w-0 overflow-hidden rounded-md border-2 bg-[#eef1f3] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6268d8] dark:bg-[#292f37] ${
+                                        referenced ? "border-[#6268d8] dark:border-[#a8abff]" : "border-transparent hover:border-[#c8ccef] dark:hover:border-[#60658f]"
+                                    }`}
+                                    onMouseDown={(event) => event.preventDefault()}
+                                    onClick={() => onSelect(asset)}
+                                    aria-label={`引用${asset.title}`}
+                                    aria-pressed={referenced}
+                                >
+                                    <AssetPreview asset={asset} />
+                                    <span className="pointer-events-none absolute left-1 top-1 max-w-[calc(100%-8px)] truncate rounded bg-black/55 px-1 py-0.5 text-[9px] leading-none text-white backdrop-blur-sm">{assetSourceLabel(asset)}</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    className={`mt-1 flex h-5 w-full items-center justify-center truncate text-[10px] font-medium transition ${referenced ? "text-[#6268d8] dark:text-[#b7b9ff]" : "text-[#7c8794] hover:text-[#4048bd] dark:text-[#9da7b3] dark:hover:text-[#c5c7ff]"}`}
+                                    onMouseDown={(event) => event.preventDefault()}
+                                    onClick={() => onSelect(asset)}
+                                    aria-label={`${referenced ? "已引用" : "引用"}${asset.title}`}
+                                >
+                                    {referenced ? "已引用" : "引用"}
+                                </button>
+                            </article>
+                        );
+                    })}
                 </div>
                 {scrollEdges.previous ? (
                     <span
@@ -90,6 +105,13 @@ export function CreativeAssetMentionPicker({ assets, selectedAssetIds, onSelect 
             </div>
         </div>
     );
+}
+
+function assetSourceLabel(asset: CreativeAsset) {
+    if (asset.metadata.source === "library") return "素材库";
+    if (asset.metadata.source === "draft-upload" || asset.metadata.source === "upload") return "已上传";
+    if (asset.sourceRunId && asset.sourceTaskId) return "历史";
+    return "当前";
 }
 
 function TypeTab({ type, count, active, onClick }: { type: "image" | "video"; count: number; active: boolean; onClick: () => void }) {

@@ -2,15 +2,18 @@
 
 import { Button, Empty, Input, Popover, Spin, Tooltip } from "antd";
 import type { TextAreaRef } from "antd/es/input/TextArea";
-import { Check, FolderOpen, History, ImageIcon, ImagePlus, LoaderCircle, Orbit, Plus, RefreshCw, Settings2, Sparkles, WandSparkles, X } from "lucide-react";
-import type { RefObject } from "react";
+import { AtSign, Check, FolderOpen, History, ImageIcon, ImagePlus, LoaderCircle, Orbit, Plus, RefreshCw, Settings2, Sparkles, WandSparkles, X } from "lucide-react";
+import { useMemo, useRef, useState, type RefObject } from "react";
 
+import { creativeAssetReferenceAliases } from "@/lib/creative-asset-references";
 import { imagePreviewUrl } from "@/lib/media-image-url";
 import type { CreativeAsset, CreativeGenerationPreferences, CreativeMessage } from "@/lib/creative-runtime-contract";
 import { cn } from "@/lib/utils";
 import type { CreativeAgentRun } from "@/services/api/creative";
 
 import type { CreativeModelOption } from "./creative-generation-controls";
+import { creativeAssetMentionAtCursor, creativeAssetMentionCandidates, creativeAssetMentionDeletionAtKey, replaceCreativeAssetMention } from "./creative-asset-mention";
+import { CreativeAssetMentionPicker } from "./creative-asset-mention-picker";
 import { WorkbenchGenerationHistoryList } from "./workbench-generation-history-list";
 import { imageWorkbenchRatios, imageWorkbenchResolutions, imageWorkbenchSizeLabel, type ImageWorkbenchRatio, type ImageWorkbenchResolution } from "../image-workbench-resolution";
 
@@ -23,6 +26,8 @@ export function ImageWorkbenchView({
     uploading,
     optimizing,
     references,
+    referenceAssets,
+    selectedAssetIds,
     assets,
     messages,
     runs,
@@ -58,6 +63,8 @@ export function ImageWorkbenchView({
     uploading: boolean;
     optimizing: boolean;
     references: CreativeAsset[];
+    referenceAssets: CreativeAsset[];
+    selectedAssetIds: string[];
     assets: CreativeAsset[];
     messages: CreativeMessage[];
     runs: Record<string, CreativeAgentRun>;
@@ -87,6 +94,8 @@ export function ImageWorkbenchView({
     onPreferenceChange: (patch: Record<string, string | number | boolean>) => void;
     onRetry: (run: CreativeAgentRun) => void;
 }) {
+    const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+    const caretRef = useRef(0);
     const imagePreferences = preferences.image || {};
     const count = imagePreferences.count || 1;
     const quality = imagePreferences.quality || "auto";
@@ -95,6 +104,52 @@ export function ImageWorkbenchView({
         .filter((run) => run.generationPreferences?.mode === "image" || run.tasks.some((task) => task.type === "image"))
         .sort((left, right) => (right.createdAt || 0) - (left.createdAt || 0));
     const unresolvedRuns = imageRuns.filter((run) => !generatedAssets.some((asset) => asset.sourceRunId === run.id) && run.status !== "completed");
+    const imageReferenceAssets = useMemo(() => referenceAssets.filter((asset) => asset.type === "image"), [referenceAssets]);
+    const mentionCandidates = useMemo(() => creativeAssetMentionCandidates(imageReferenceAssets, mentionQuery || ""), [imageReferenceAssets, mentionQuery]);
+    const referenceAliases = useMemo(
+        () =>
+            creativeAssetReferenceAliases(
+                imageReferenceAssets,
+                references.map((asset) => asset.id),
+            ),
+        [imageReferenceAssets, references],
+    );
+
+    const updatePromptAtCursor = (value: string, cursor: number) => {
+        caretRef.current = cursor;
+        onPromptChange(value);
+        setMentionQuery(creativeAssetMentionAtCursor(value, cursor)?.query ?? null);
+    };
+    const focusPromptAt = (cursor: number) => {
+        window.requestAnimationFrame(() => {
+            const textarea = inputRef.current?.resizableTextArea?.textArea;
+            inputRef.current?.focus();
+            textarea?.setSelectionRange(cursor, cursor);
+        });
+    };
+    const openAssetMention = () => {
+        const textarea = inputRef.current?.resizableTextArea?.textArea;
+        const currentValue = textarea?.value ?? prompt;
+        const cursor = textarea?.selectionStart ?? currentValue.length;
+        updatePromptAtCursor(`${currentValue.slice(0, cursor)}@${currentValue.slice(cursor)}`, cursor + 1);
+        focusPromptAt(cursor + 1);
+    };
+    const selectMentionAsset = (asset: CreativeAsset) => {
+        const alreadyReferenced = selectedAssetIds.includes(asset.id);
+        if (!alreadyReferenced && references.length >= 9) {
+            onUseAsReference(asset);
+            return;
+        }
+        const nextAssetIds = alreadyReferenced ? selectedAssetIds : [...selectedAssetIds, asset.id];
+        const alias = creativeAssetReferenceAliases(imageReferenceAssets, nextAssetIds).get(asset.id);
+        if (!alias) return;
+        const currentValue = inputRef.current?.resizableTextArea?.textArea?.value ?? prompt;
+        const result = replaceCreativeAssetMention(currentValue, caretRef.current, alias);
+        if (!alreadyReferenced) onUseAsReference(asset);
+        updatePromptAtCursor(result.value, result.cursor);
+        setMentionQuery(null);
+        focusPromptAt(result.cursor);
+    };
 
     return (
         <main data-testid="image-workbench-view" className="h-full min-h-0 overflow-y-auto bg-[#f4f7fb] text-[#172033] dark:bg-[#101318] dark:text-[#f3f5f7]">
@@ -125,17 +180,63 @@ export function ImageWorkbenchView({
                                 <span className="text-[10px] font-medium text-[#8ea0ba]">{prompt.length}/2000</span>
                             </div>
                             <div className="rounded-2xl border border-[#d9e2ef] bg-[#f7f9fc] p-2 transition focus-within:border-[#bd9cff] focus-within:ring-2 focus-within:ring-[#a94bff]/10 dark:border-[#323946] dark:bg-[#171b21]">
-                                <Input.TextArea
-                                    ref={inputRef}
-                                    value={prompt}
-                                    maxLength={2000}
-                                    autoSize={{ minRows: 6, maxRows: 11 }}
-                                    variant="borderless"
-                                    className="!resize-none !bg-transparent !px-3 !py-2 !text-[14px] !leading-6"
-                                    placeholder="在此输入您的创意画面或产品设定，例如：一只带有金属微光的智能运动手表，置于极简暗色赛博底座，环绕圆形淡紫色冷光环，微距质感宣传海报……"
-                                    onChange={(event) => onPromptChange(event.target.value)}
-                                />
-                                <div className="flex justify-end px-1 pb-1">
+                                <Popover
+                                    trigger={[]}
+                                    placement="bottomLeft"
+                                    arrow={false}
+                                    open={mentionQuery !== null}
+                                    onOpenChange={(open) => {
+                                        if (!open) setMentionQuery(null);
+                                    }}
+                                    styles={{ container: { padding: 0, borderRadius: 16, overflow: "hidden" } }}
+                                    content={<CreativeAssetMentionPicker assets={mentionCandidates} selectedAssetIds={selectedAssetIds} onSelect={selectMentionAsset} />}
+                                >
+                                    <Input.TextArea
+                                        ref={inputRef}
+                                        value={prompt}
+                                        maxLength={2000}
+                                        autoSize={{ minRows: 6, maxRows: 11 }}
+                                        variant="borderless"
+                                        className="!resize-none !bg-transparent !px-3 !py-2 !text-[14px] !leading-6"
+                                        placeholder="在此输入您的创意画面或产品设定，例如：一只带有金属微光的智能运动手表，置于极简暗色赛博底座，环绕圆形淡紫色冷光环，微距质感宣传海报……"
+                                        onChange={(event) => updatePromptAtCursor(event.target.value, event.target.selectionStart)}
+                                        onClick={(event) => {
+                                            caretRef.current = event.currentTarget.selectionStart;
+                                            setMentionQuery(creativeAssetMentionAtCursor(event.currentTarget.value, event.currentTarget.selectionStart)?.query ?? null);
+                                        }}
+                                        onKeyUp={(event) => {
+                                            if (["ArrowUp", "ArrowDown", "Enter", "Escape"].includes(event.key)) return;
+                                            caretRef.current = event.currentTarget.selectionStart;
+                                            setMentionQuery(creativeAssetMentionAtCursor(event.currentTarget.value, event.currentTarget.selectionStart)?.query ?? null);
+                                        }}
+                                        onKeyDown={(event) => {
+                                            if (event.key === "Backspace" || event.key === "Delete") {
+                                                const deletion = creativeAssetMentionDeletionAtKey(prompt, event.currentTarget.selectionStart, event.currentTarget.selectionEnd, event.key, referenceAliases);
+                                                if (deletion) {
+                                                    event.preventDefault();
+                                                    setMentionQuery(null);
+                                                    onRemoveReference(deletion.assetId);
+                                                    focusPromptAt(deletion.cursor);
+                                                    return;
+                                                }
+                                            }
+                                            if (event.key === "Escape" && mentionQuery !== null) {
+                                                event.preventDefault();
+                                                setMentionQuery(null);
+                                            }
+                                        }}
+                                    />
+                                </Popover>
+                                <div className="flex flex-wrap justify-end gap-2 px-1 pb-1">
+                                    <Button
+                                        type="text"
+                                        icon={<AtSign className="size-4" />}
+                                        className="!h-9 !rounded-full !px-3 !text-xs !font-semibold !text-[#687992] hover:!bg-[#eef2f7] hover:!text-[#7524c2] dark:!text-[#a8b2c0] dark:hover:!bg-[#252b33]"
+                                        onMouseDown={(event) => event.preventDefault()}
+                                        onClick={openAssetMention}
+                                    >
+                                        引用已上传或素材库
+                                    </Button>
                                     <Button
                                         loading={optimizing}
                                         disabled={!prompt.trim()}
@@ -162,6 +263,7 @@ export function ImageWorkbenchView({
                                 {references.map((asset) => (
                                     <div key={asset.id} className="group relative size-36 overflow-hidden rounded-2xl border border-[#dce4ef] bg-[#f7f9fc] shadow-sm dark:border-[#343b46] dark:bg-[#1b2027]">
                                         <img src={imagePreviewUrl(assetUrl(asset), 384)} alt={asset.title || "参考图"} className="size-full object-cover" />
+                                        <span className="pointer-events-none absolute bottom-2 left-2 rounded-full bg-black/60 px-2 py-1 text-[10px] font-medium text-white backdrop-blur-sm">已引用 · {referenceSourceLabel(asset)}</span>
                                         <button
                                             type="button"
                                             aria-label={`移除参考图 ${asset.title}`}
@@ -424,4 +526,10 @@ function runPrompt(run: CreativeAgentRun, messages: CreativeMessage[]) {
 
 function assetUrl(asset: CreativeAsset) {
     return asset.serverUrl || asset.remoteUrl || "";
+}
+
+function referenceSourceLabel(asset: CreativeAsset) {
+    if (asset.metadata.source === "library") return "素材库";
+    if (asset.metadata.source === "draft-upload" || asset.metadata.source === "upload") return "已上传";
+    return "历史素材";
 }

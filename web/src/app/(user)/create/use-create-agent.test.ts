@@ -21,7 +21,20 @@ describe("useCreateAgent submission retry", () => {
         expect(draftStoreSource).not.toContain("localStorage");
         expect(materializeSource).toContain("await ensureConversation(generation)");
         expect(materializeSource).toContain("await uploadCreativeAsset(materializedConversationId, draft.file)");
+        expect(materializeSource).toContain("await importCreativeLibraryAsset(materializedConversationId, libraryAssetId)");
         expect(submitSource.indexOf("await materializeDraftAttachments(selectedIds)")).toBeLessThan(submitSource.indexOf("executeSubmission(snapshot)"));
+    });
+
+    it("offers uploaded, generated and library media through the same reference picker", async () => {
+        const source = await readFile(resolve(process.cwd(), "src/app/(user)/create/use-create-agent.ts"), "utf8");
+        const pageSource = await readFile(resolve(process.cwd(), "src/app/(user)/create/page.tsx"), "utf8");
+        const imageWorkbenchSource = await readFile(resolve(process.cwd(), "src/app/(user)/create/components/image-workbench-view.tsx"), "utf8");
+
+        expect(source).toContain("await listLibraryAssets()");
+        expect(source).toContain("referenceAssets: allAssets");
+        expect(pageSource).toContain("referenceAssets={agent.referenceAssets}");
+        expect(imageWorkbenchSource).toContain("<CreativeAssetMentionPicker");
+        expect(imageWorkbenchSource).toContain("引用已上传或素材库");
     });
 
     it("reuses the original request and keeps attachments on the original user message", async () => {

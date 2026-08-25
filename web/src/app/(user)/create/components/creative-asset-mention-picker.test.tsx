@@ -19,6 +19,8 @@ describe("CreativeAssetMentionPicker", () => {
         expect(markup).not.toContain("border-b");
         expect(markup).not.toContain("bg-[#eeeeff]");
         expect(markup.indexOf('data-asset-id="image-one"')).toBeLessThan(markup.indexOf('data-asset-id="image-two"'));
+        expect(markup).toContain('aria-pressed="true"');
+        expect(markup).toContain("已引用");
         expect(markup).not.toContain(">图片素材 1<");
         expect(markup).not.toContain(">图片素材 2<");
     });
@@ -49,6 +51,16 @@ describe("CreativeAssetMentionPicker", () => {
         expect(markup).toContain('src="/media/video-no-cover.mp4"');
         expect(markup).toContain('preload="metadata"');
         expect(markup).toContain('aria-hidden="true"');
+    });
+
+    it("labels uploaded and library candidates so their source is visible before referencing", () => {
+        const uploaded = { ...asset("uploaded", "image", 1), metadata: { source: "draft-upload" } };
+        const library = { ...asset("library", "image", 2), metadata: { source: "library", libraryAssetId: "library-one" } };
+        const markup = renderToStaticMarkup(<CreativeAssetMentionPicker assets={[uploaded, library]} selectedAssetIds={[]} onSelect={() => undefined} />);
+
+        expect(markup).toContain('data-source="已上传"');
+        expect(markup).toContain('data-source="素材库"');
+        expect(markup).toContain("引用");
     });
 });
 

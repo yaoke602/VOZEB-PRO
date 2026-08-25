@@ -15,6 +15,8 @@ import {
 import { writePersistentMediaDataUrl } from "@/lib/server/reference-asset-store";
 import { deleteCreativeConversationAggregates } from "@/lib/server/creative-entity-deletion-store";
 import { deleteUserLocalMediaAssets } from "@/lib/server/local-media-storage";
+import { getLibraryAsset } from "@/lib/server/library-asset-store";
+import { getLocalMediaRegistration } from "@/lib/server/local-media-registry";
 
 export class CreativeRuntimeServiceError extends Error {
     constructor(
@@ -125,6 +127,42 @@ export async function uploadAssetForUser(userId: string, conversationId: string,
             mimeType: stored.mimeType,
             bytes: stored.bytes,
             metadata: { source: "upload", originalName: file.name, storageClass: "permanent" },
+        },
+    ]);
+    return asset;
+}
+
+export async function importLibraryAssetForUser(userId: string, conversationId: string, libraryAssetId: string) {
+    const conversation = await getConversationForUser(userId, conversationId);
+    if (conversation.status !== "active") throw new CreativeRuntimeServiceError("已归档会话不能引用素材", 409);
+    const libraryAsset = await getLibraryAsset(userId, optionalText(libraryAssetId, 160) || "");
+    if (!libraryAsset) throw new CreativeRuntimeServiceError("素材库资源不存在", 404);
+    if (libraryAsset.kind === "text") throw new CreativeRuntimeServiceError("当前仅支持引用图片、视频和音频素材", 400);
+    const data = libraryAsset.data;
+    const fallbackUrl = "dataUrl" in data ? data.dataUrl : data.url;
+    const serverUrl = data.serverUrl || (fallbackUrl.startsWith("/") ? fallbackUrl : undefined);
+    const remoteUrl = data.remoteUrl || (/^https?:\/\//i.test(fallbackUrl) ? fallbackUrl : undefined);
+    if (!data.storageKey && !serverUrl && !remoteUrl) throw new CreativeRuntimeServiceError("素材必须先保存到服务器", 400);
+    const registration = data.storageKey ? await getLocalMediaRegistration(data.storageKey) : null;
+    const [asset] = await registerCreativeAssets([
+        {
+            userId,
+            conversationId,
+            sourceRunId: `library:${conversationId}`,
+            sourceTaskId: libraryAsset.id,
+            ordinal: 0,
+            type: libraryAsset.kind,
+            title: optionalText(libraryAsset.title, 160) || "素材库资源",
+            storageKind: registration?.storageProvider === "object" ? "object" : serverUrl ? "local" : "remote",
+            storageKey: data.storageKey,
+            remoteUrl,
+            serverUrl,
+            mimeType: data.mimeType,
+            width: "width" in data ? data.width : undefined,
+            height: "height" in data ? data.height : undefined,
+            durationMs: "durationMs" in data ? data.durationMs : undefined,
+            bytes: data.bytes,
+            metadata: { source: "library", libraryAssetId: libraryAsset.id, ...(libraryAsset.coverUrl ? { coverUrl: libraryAsset.coverUrl } : {}) },
         },
     ]);
     return asset;
