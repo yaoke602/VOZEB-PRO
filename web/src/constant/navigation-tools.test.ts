@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { landingNavigationTools, navigationGroups, navigationTools } from "./navigation-tools";
+import { landingNavigationTools, navigationGroups, navigationToolForPathname, navigationTools } from "./navigation-tools";
 
 describe("user navigation order", () => {
     it("keeps the landing page entries in their dedicated order", () => {
@@ -17,8 +17,10 @@ describe("user navigation order", () => {
         expect(navigationTools.findIndex((tool) => tool.slug === "video")).toBeLessThan(navigationTools.findIndex((tool) => tool.slug === "canvas"));
     });
 
-    it("keeps published works and personal assets in the requested asset order", () => {
-        expect(navigationTools.filter((tool) => tool.group === "assets").map((tool) => tool.label)).toEqual(["作品", "素材", "提示词", "词库"]);
+    it("combines published works and personal assets into the resource library", () => {
+        expect(navigationTools.filter((tool) => tool.group === "assets").map((tool) => tool.label)).toEqual(["资源库", "提示词", "词库"]);
+        expect(navigationToolForPathname("/works")?.slug).toBe("assets");
+        expect(navigationToolForPathname("/assets")?.slug).toBe("assets");
         expect(navigationTools.filter((tool) => tool.group === "community").map((tool) => tool.label)).toEqual(["广场", "主页"]);
         expect(navigationTools.find((tool) => tool.group === "community")?.slug).toBe("community");
     });

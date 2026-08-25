@@ -91,7 +91,7 @@ export function AssetCard({
 export function AssetPreviewModal({ asset, onClose, onCopy, onDownload }: { asset: Asset | null; onClose: () => void; onCopy: (asset: Asset) => void; onDownload: (asset: Asset) => void }) {
     const cover = asset ? asset.coverUrl || (asset.kind === "image" ? asset.data.dataUrl : "") : "";
     return (
-        <Modal title="素材详情" open={Boolean(asset)} width={760} centered footer={null} onCancel={onClose} destroyOnHidden>
+        <Modal title="资源详情" open={Boolean(asset)} width={760} centered footer={null} onCancel={onClose} destroyOnHidden>
             {asset ? (
                 <div className="max-h-[72vh] space-y-4 overflow-y-auto pr-1">
                     {cover ? (
@@ -161,7 +161,7 @@ export function assetSearchText(asset: Asset) {
 }
 
 function assetKindLabel(kind: Asset["kind"]) {
-    return kind === "image" ? "图片" : kind === "video" ? "视频" : kind === "audio" ? "音频" : "文本";
+    return kind === "image" ? "图片" : kind === "video" ? "视频" : kind === "audio" ? "音频" : "脚本";
 }
 
 function assetKindIcon(kind: Asset["kind"]) {

@@ -1,12 +1,13 @@
 "use client";
 
 import { App, Button, Input, Modal, Pagination, Segmented, Select, Tag } from "antd";
-import { ArrowUpFromLine, Ban, Compass, Copy, Eye, Film, GalleryVerticalEnd, Image as ImageIcon, Pencil, Plus, RefreshCw, Scale, Search, Send, Trash2 } from "lucide-react";
+import { ArrowUpFromLine, Ban, Compass, Copy, Eye, Film, GalleryVerticalEnd, Image as ImageIcon, Pencil, Play, Plus, RefreshCw, Scale, Search, Send, Trash2 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CompactEmptyState } from "@/components/compact-empty-state";
 import { useCopyText } from "@/hooks/use-copy-text";
+import { imagePreviewUrl } from "@/lib/media-image-url";
 import { workStatusToneClass } from "@/lib/work-publication-status";
 import {
     deleteWorkPublication,
@@ -19,6 +20,7 @@ import {
     type WorkPublicationSourceType,
 } from "@/services/api/work-publications";
 import { submitWorkAppeal } from "@/services/api/work-governance";
+import { ResourceLibraryHeader } from "../assets/resource-library-header";
 import { WorkPublicationEditor } from "./components/work-publication-editor";
 import { formatWorkTime, SOURCE_TYPE_LABELS, VISIBILITY_LABELS, workSharePath, workStatusLabel, WORK_STATUS_OPTIONS } from "./work-publication-values";
 
@@ -186,28 +188,23 @@ export default function WorksPage() {
 
     return (
         <main className="h-full min-h-0 overflow-y-auto bg-background text-foreground">
-            <div className="mx-auto w-full max-w-7xl px-2 py-2 sm:px-6 sm:py-8">
-                <header className="flex flex-col gap-3 border-b border-border pb-3 sm:flex-row sm:items-end sm:justify-between sm:gap-5 sm:pb-6">
-                    <div className="min-w-0">
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <GalleryVerticalEnd className="size-4" />
-                            发布中心
-                        </div>
-                        <h1 className="mt-1.5 text-xl font-semibold sm:mt-2 sm:text-2xl">作品管理</h1>
-                        <p className="mt-1.5 text-xs leading-5 text-muted-foreground sm:mt-2 sm:text-sm">管理草稿、审核状态和当前公开版本</p>
-                    </div>
-                    <div className="flex items-center justify-end gap-2">
-                        <Button className="!size-9 !p-0 sm:!size-auto sm:!h-8 sm:!px-3" href="/community" icon={<Compass className="size-4" />} aria-label="浏览作品广场">
-                            <span className="hidden sm:inline">作品广场</span>
-                        </Button>
-                        <Button className="!size-9 !p-0 sm:!size-auto sm:!h-8 sm:!px-3" icon={<RefreshCw className="size-4" />} loading={loading} onClick={() => void load()} aria-label="刷新作品列表" />
-                        <Button className="!h-9 !px-3 sm:!h-8" type="primary" icon={<Plus className="size-4" />} onClick={openCreate}>
-                            发布作品
-                        </Button>
-                    </div>
-                </header>
+            <div className="mx-auto w-full max-w-[1560px] px-3 py-3 sm:px-6 sm:py-6">
+                <ResourceLibraryHeader
+                    active="works"
+                    actions={
+                        <>
+                            <Button className="!size-9 !p-0 sm:!size-auto sm:!h-8 sm:!px-3" href="/community" icon={<Compass className="size-4" />} aria-label="浏览作品广场">
+                                <span className="hidden sm:inline">作品广场</span>
+                            </Button>
+                            <Button className="!size-9 !p-0 sm:!size-auto sm:!h-8 sm:!px-3" icon={<RefreshCw className="size-4" />} loading={loading} onClick={() => void load()} aria-label="刷新作品列表" />
+                            <Button className="!h-9 !px-3 sm:!h-8" type="primary" icon={<Plus className="size-4" />} onClick={openCreate}>
+                                发布作品
+                            </Button>
+                        </>
+                    }
+                />
 
-                <section className="flex min-w-0 flex-row items-center gap-2 border-b border-border py-3 sm:justify-between sm:gap-3 sm:py-4">
+                <section className="mt-3 flex min-w-0 flex-row items-center gap-2 rounded-xl border border-border bg-card p-2.5 sm:mt-4 sm:justify-between sm:gap-3 sm:p-3">
                     <div className="hidden shrink-0 sm:block">
                         <Segmented
                             value={status}
@@ -252,7 +249,7 @@ export default function WorksPage() {
                 ) : loading && !items.length ? (
                     <section className="grid min-h-40 place-items-center text-sm text-muted-foreground">正在加载作品...</section>
                 ) : items.length ? (
-                    <section className="grid min-w-0 gap-2 py-3 sm:gap-3 sm:py-5">
+                    <section className="grid min-w-0 grid-cols-1 gap-3 py-3 sm:grid-cols-2 sm:py-5 xl:grid-cols-3 2xl:grid-cols-4">
                         {items.map((work) => (
                             <WorkListItem
                                 key={work.id}
@@ -289,7 +286,7 @@ export default function WorksPage() {
                     />
                 )}
 
-                {total > PAGE_SIZE ? <Pagination className="pb-6 pt-2" current={page} pageSize={PAGE_SIZE} total={total} showSizeChanger={false} size="small" onChange={setPage} /> : null}
+                {total > PAGE_SIZE ? <Pagination className="flex justify-center pb-6 pt-2" current={page} pageSize={PAGE_SIZE} total={total} showSizeChanger={false} size="small" onChange={setPage} /> : null}
             </div>
 
             <WorkPublicationEditor
@@ -349,31 +346,44 @@ function WorkListItem({
     const canEdit = active && version.moderationStatus !== "pending";
     const shareable = active && Boolean(work.publishedVersionId) && work.publishedVersion?.visibility !== "private";
     const sourceIcon = work.sourceType === "media" ? <ImageIcon className="size-4" /> : work.sourceType === "canvas" ? <GalleryVerticalEnd className="size-4" /> : <Film className="size-4" />;
+    const preview = work.currentPreview;
+    const previewUrl = preview?.previewUrl;
     return (
-        <article className="min-w-0 rounded-lg border border-border bg-card p-3.5 text-card-foreground transition hover:border-foreground/20 sm:p-4">
-            <div className="grid min-w-0 gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
-                <div className="flex min-w-0 flex-1 items-start gap-3">
-                    <span className="grid size-9 shrink-0 place-items-center rounded-md border border-border bg-muted text-muted-foreground">{sourceIcon}</span>
+        <article className="group flex min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card text-card-foreground transition-[border-color,transform] duration-200 hover:-translate-y-0.5 hover:border-foreground/30">
+            <div className="relative aspect-[16/10] overflow-hidden bg-muted">
+                {previewUrl && preview?.mediaType === "image" ? <img src={imagePreviewUrl(previewUrl, 800)} alt={version.title} className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.025]" /> : null}
+                {previewUrl && preview?.mediaType === "video" ? <video src={previewUrl} muted playsInline preload="metadata" className="size-full object-cover" /> : null}
+                {!previewUrl || (preview?.mediaType !== "image" && preview?.mediaType !== "video") ? <div className="grid size-full place-items-center text-muted-foreground">{sourceIcon}</div> : null}
+                {preview?.mediaType === "video" ? (
+                    <span className="pointer-events-none absolute left-1/2 top-1/2 grid size-11 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/60 bg-black/45 text-white backdrop-blur-sm">
+                        <Play className="ml-0.5 size-5 fill-current" />
+                    </span>
+                ) : null}
+                <span className={`absolute left-2.5 top-2.5 inline-flex h-6 items-center rounded-md border px-2 text-[11px] font-medium leading-none shadow-sm ${workStatusToneClass(active ? version.moderationStatus : "revoked")}`}>
+                    {active ? workStatusLabel(version.moderationStatus) : "已下架"}
+                </span>
+                <span className="absolute right-2.5 top-2.5 inline-flex h-6 items-center gap-1 rounded-md border border-white/20 bg-black/60 px-2 text-[11px] font-medium text-white backdrop-blur-sm">
+                    {sourceIcon} {SOURCE_TYPE_LABELS[work.sourceType]}作品
+                </span>
+            </div>
+
+            <div className="flex min-h-0 flex-1 flex-col p-3.5">
+                <div className="flex min-w-0 items-start gap-2">
                     <div className="min-w-0 flex-1">
-                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                            <h2 className="min-w-0 max-w-full truncate text-sm font-semibold">{version.title}</h2>
-                            <span className={`inline-flex h-6 items-center rounded-md border px-2 text-xs font-medium leading-none ${workStatusToneClass(active ? version.moderationStatus : "revoked")}`}>
-                                {active ? workStatusLabel(version.moderationStatus) : "已下架"}
-                            </span>
-                            {work.publishedVersion && work.publishedVersion.id !== version.id ? <Tag color="success">线上 v{work.publishedVersion.versionNumber}</Tag> : null}
-                        </div>
-                        <p className="mt-0.5 line-clamp-1 text-xs leading-5 text-muted-foreground">{version.description || "暂未填写作品说明"}</p>
-                        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-muted-foreground">
-                            <span>{SOURCE_TYPE_LABELS[work.sourceType]}来源</span>
-                            <span>v{version.versionNumber}</span>
-                            <span>{VISIBILITY_LABELS[version.visibility]}</span>
-                            <span>{work.viewCount} 次访问</span>
-                            <span>更新于 {formatWorkTime(work.updatedAt)}</span>
-                        </div>
-                        {version.rejectionReason ? <div className="mt-1.5 border-l-2 border-rose-400 pl-2 text-xs leading-5 text-rose-700 dark:text-rose-300">驳回原因：{version.rejectionReason}</div> : null}
+                        <h2 className="truncate text-sm font-semibold">{version.title}</h2>
+                        <p className="mt-1 line-clamp-2 min-h-10 text-xs leading-5 text-muted-foreground">{version.description || "暂未填写作品说明"}</p>
                     </div>
+                    {work.publishedVersion && work.publishedVersion.id !== version.id ? <Tag color="success">线上 v{work.publishedVersion.versionNumber}</Tag> : null}
                 </div>
-                <div className="flex min-w-0 flex-wrap gap-1.5 border-t border-border pt-3 md:max-w-md md:shrink-0 md:justify-end md:border-t-0 md:pt-0">
+                <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+                    <span>v{version.versionNumber}</span>
+                    <span>{VISIBILITY_LABELS[version.visibility]}</span>
+                    <span>{work.viewCount} 次访问</span>
+                    <span>{formatWorkTime(work.updatedAt)}</span>
+                </div>
+                {version.rejectionReason ? <div className="mt-2 border-l-2 border-rose-400 pl-2 text-xs leading-5 text-rose-700 dark:text-rose-300">驳回原因：{version.rejectionReason}</div> : null}
+
+                <div className="mt-auto flex min-w-0 flex-wrap gap-1.5 border-t border-border pt-3">
                     {shareable ? (
                         <>
                             <Button size="small" icon={<Eye className="size-3.5" />} onClick={onPreview}>

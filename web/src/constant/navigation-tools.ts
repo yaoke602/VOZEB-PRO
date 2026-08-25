@@ -1,4 +1,4 @@
-import { BookMarked, Clapperboard, Compass, FileText, GalleryVerticalEnd, ImageIcon, Images, Maximize2, Sparkles, UserRound, Video } from "lucide-react";
+import { BookMarked, Clapperboard, Compass, FileText, FolderHeart, ImageIcon, Maximize2, Sparkles, UserRound, Video } from "lucide-react";
 
 export const navigationGroups = [
     { id: "create", label: "创作" },
@@ -51,18 +51,11 @@ export const navigationTools = [
         icon: Clapperboard,
     },
     {
-        slug: "works",
-        label: "作品",
-        description: "发布、审核与分享",
-        group: "assets",
-        icon: GalleryVerticalEnd,
-    },
-    {
         slug: "assets",
-        label: "素材",
-        description: "图片、视频与音频",
+        label: "资源库",
+        description: "成片、素材与脚本",
         group: "assets",
-        icon: Images,
+        icon: FolderHeart,
     },
     {
         slug: "my-prompts",
@@ -99,5 +92,6 @@ export type NavigationGroupId = (typeof navigationGroups)[number]["id"];
 
 export function navigationToolForPathname(pathname: string) {
     const slug = pathname.split("/").filter(Boolean)[0];
+    if (slug === "works") return navigationTools.find((tool) => tool.slug === "assets");
     return navigationTools.find((tool) => tool.slug === slug);
 }

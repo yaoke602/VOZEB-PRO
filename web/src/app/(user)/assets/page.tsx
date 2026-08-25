@@ -1,10 +1,10 @@
 "use client";
 
 import { FileAudio, FileDown, FileUp, Film, Plus, Search, Upload } from "lucide-react";
-import { useRef, useState, type DragEvent as ReactDragEvent } from "react";
-import { App, Button, Form, Input, Modal, Pagination, Segmented, Select, Space, Spin, Tag, Tooltip, Typography } from "antd";
+import { useEffect, useRef, useState, type DragEvent as ReactDragEvent } from "react";
+import { App, Button, Form, Input, Modal, Pagination, Select, Space, Spin, Tag, Typography } from "antd";
 import { saveAs } from "file-saver";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { useCopyText } from "@/hooks/use-copy-text";
 import { CompactEmptyState } from "@/components/compact-empty-state";
@@ -33,20 +33,22 @@ type AssetFormValues = {
 
 type MediaDraft = ImageAsset["data"] | VideoAsset["data"] | AudioAsset["data"] | null;
 
-const kindOptions = [
-    { label: "全部", value: "all" },
-    { label: "文本", value: "text" },
+const assetKindOptions = [
+    { label: "全部类型", value: "all" },
+    { label: "脚本", value: "text" },
     { label: "图片", value: "image" },
     { label: "视频", value: "video" },
     { label: "音频", value: "audio" },
 ];
 
 import { AssetCard, AssetPreviewModal } from "./asset-elements";
+import { ResourceLibraryHeader, type ResourceLibrarySection } from "./resource-library-header";
 import { useAssetPage } from "./use-asset-page";
 
 export default function AssetsPage() {
     const { message } = App.useApp();
     const router = useRouter();
+    const searchParams = useSearchParams();
     const copyText = useCopyText();
     const [form] = Form.useForm<AssetFormValues>();
     const coverInputRef = useRef<HTMLInputElement>(null);
@@ -57,7 +59,8 @@ export default function AssetsPage() {
     const updateAsset = useAssetStore((state) => state.updateAsset);
     const removeAsset = useAssetStore((state) => state.removeAsset);
     const [keyword, setKeyword] = useState("");
-    const [kindFilter, setKindFilter] = useState<AssetKind | "all">("all");
+    const requestedKind = assetKindFromQuery(searchParams.get("kind"));
+    const [kindFilter, setKindFilter] = useState<AssetKind | "all">(requestedKind);
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(10);
     const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
@@ -77,6 +80,11 @@ export default function AssetsPage() {
     const content = Form.useWatch("content", form) || "";
     const { assets, total, loading, error, reload } = useAssetPage({ userId, page, pageSize, kind: kindFilter, keyword });
     const ready = Boolean(userId);
+
+    useEffect(() => {
+        setKindFilter(requestedKind);
+        setPage(1);
+    }, [requestedKind]);
 
     const openCreate = () => {
         setEditingAsset(null);
@@ -257,30 +265,31 @@ export default function AssetsPage() {
         }
     };
 
+    const activeSection: ResourceLibrarySection = kindFilter === "image" ? "image" : kindFilter === "text" ? "text" : kindFilter === "audio" ? "audio" : "assets";
+
     return (
         <div className="h-full min-h-0 overflow-hidden bg-background text-foreground">
             <main className="h-full min-h-0 overflow-y-auto px-3 py-3 sm:px-6 sm:py-6">
                 <div className="mx-auto max-w-[1560px]">
-                    <header className="border-b border-border pb-3 sm:pb-4">
-                        <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                                <h1 className="text-lg font-semibold sm:text-xl">我的素材</h1>
-                                <p className="mt-0.5 text-xs text-muted-foreground">{total ? `${total} 项素材` : "集中管理创作中复用的内容"}</p>
-                            </div>
-                            <div className="flex shrink-0 items-center gap-1">
-                                <Tooltip title="导出素材">
-                                    <Button type="text" shape="circle" icon={<FileDown className="size-4" />} aria-label="导出素材" onClick={() => void exportAllAssets()} />
-                                </Tooltip>
-                                <Tooltip title={importing ? "正在导入" : "导入素材"}>
-                                    <Button type="text" shape="circle" icon={<FileUp className="size-4" />} aria-label="导入素材" disabled={!ready || importing} loading={importing} onClick={() => assetInputRef.current?.click()} />
-                                </Tooltip>
-                                <Tooltip title="新增素材">
-                                    <Button type="primary" shape="circle" icon={<Plus className="size-4" />} aria-label="新增素材" disabled={!ready} onClick={openCreate} />
-                                </Tooltip>
-                            </div>
-                        </div>
+                    <ResourceLibraryHeader
+                        active={activeSection}
+                        actions={
+                            <>
+                                <Button icon={<FileDown className="size-4" />} onClick={() => void exportAllAssets()}>
+                                    <span className="hidden sm:inline">导出素材</span>
+                                </Button>
+                                <Button icon={<FileUp className="size-4" />} disabled={!ready || importing} loading={importing} onClick={() => assetInputRef.current?.click()}>
+                                    <span className="hidden sm:inline">导入素材</span>
+                                </Button>
+                                <Button type="primary" icon={<Plus className="size-4" />} disabled={!ready} onClick={openCreate}>
+                                    新增资源
+                                </Button>
+                            </>
+                        }
+                    />
 
-                        <div className="mt-3 grid gap-2 lg:grid-cols-[minmax(260px,520px)_auto] lg:items-center lg:justify-between">
+                    <section className="mt-3 rounded-xl border border-border bg-card p-2.5 sm:mt-4 sm:p-3">
+                        <div className="grid gap-2 sm:grid-cols-[minmax(220px,1fr)_140px_auto] sm:items-center">
                             <Input.Search
                                 className="w-full"
                                 size="middle"
@@ -297,22 +306,21 @@ export default function AssetsPage() {
                                     setKeyword(value);
                                 }}
                             />
-                            <div className="min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                                <Segmented
-                                    block
-                                    value={kindFilter}
-                                    options={kindOptions}
-                                    onChange={(value) => {
-                                        setPage(1);
-                                        setKindFilter(value as AssetKind | "all");
-                                    }}
-                                />
-                            </div>
+                            <Select
+                                className="w-full"
+                                value={kindFilter}
+                                options={assetKindOptions}
+                                onChange={(value) => {
+                                    setPage(1);
+                                    setKindFilter(value as AssetKind | "all");
+                                }}
+                            />
+                            <span className="justify-self-end whitespace-nowrap px-1 text-xs text-muted-foreground">共 {total} 项资源</span>
                         </div>
-                    </header>
+                    </section>
 
                     <div className="flex flex-col gap-3 pt-3 sm:gap-5 sm:pt-5">
-                        <div className={cn("grid grid-cols-1 gap-3 transition-opacity sm:grid-cols-[repeat(auto-fill,minmax(240px,280px))] sm:justify-start", loading && assets.length && "opacity-60")} aria-busy={loading}>
+                        <div className={cn("grid grid-cols-1 gap-3 transition-opacity sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4", loading && assets.length && "opacity-60")} aria-busy={loading}>
                             {assets.map((asset) => (
                                 <AssetCard
                                     key={asset.id}
@@ -359,13 +367,13 @@ export default function AssetsPage() {
                 </div>
             </main>
 
-            <Modal title={editingAsset ? "编辑素材" : "新增素材"} open={isAssetOpen} width={980} onCancel={() => setIsAssetOpen(false)} onOk={() => void saveAsset()} confirmLoading={saving} okText="保存" cancelText="取消" destroyOnHidden>
+            <Modal title={editingAsset ? "编辑资源" : "新增资源"} open={isAssetOpen} width={980} onCancel={() => setIsAssetOpen(false)} onOk={() => void saveAsset()} confirmLoading={saving} okText="保存" cancelText="取消" destroyOnHidden>
                 <div className="grid gap-3 pt-1 sm:gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
                     <Form form={form} layout="vertical" requiredMark={false} initialValues={{ kind: "text", tags: [] }}>
                         <Form.Item name="kind" label="类型">
                             <Select
                                 options={[
-                                    { label: "文本", value: "text" },
+                                    { label: "脚本", value: "text" },
                                     { label: "图片", value: "image" },
                                     { label: "视频", value: "video" },
                                     { label: "音频", value: "audio" },
@@ -409,8 +417,8 @@ export default function AssetsPage() {
                             </Form.Item>
                         </div>
                         {formKind === "text" ? (
-                            <Form.Item name="content" label="文本内容" rules={[{ required: true, message: "请输入文本内容" }]}>
-                                <Input.TextArea rows={8} placeholder="保存提示词、说明文案、参考描述等文本素材" />
+                            <Form.Item name="content" label="脚本内容" rules={[{ required: true, message: "请输入脚本内容" }]}>
+                                <Input.TextArea rows={8} placeholder="保存口播文案、分镜说明或其他脚本内容" />
                             </Form.Item>
                         ) : (
                             <Form.Item label={`${formKind === "image" ? "图片" : formKind === "video" ? "视频" : "音频"}内容`} required>
@@ -507,4 +515,8 @@ export default function AssetsPage() {
             </Modal>
         </div>
     );
+}
+
+function assetKindFromQuery(value: string | null): AssetKind | "all" {
+    return value === "text" || value === "image" || value === "video" || value === "audio" ? value : "all";
 }
