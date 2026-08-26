@@ -19,6 +19,7 @@ import {
     resolveResultSize,
     sanitizeConfigs,
     shouldFallbackToJsonImageEdit,
+    shouldUseJsonImageEdit,
     shouldRetryJsonImageEditPayload,
     taskHeaders,
 } from "./image-task-support";
@@ -168,6 +169,21 @@ describe("GlobalAiOpc image task paths", () => {
 
         await expect(openAiImageTaskPath(sub2ApiConfig, "generation")).resolves.toBe("/images/generations");
         await expect(openAiImageTaskPath(sub2ApiConfig, "edit")).resolves.toBe("/images/edits");
+    });
+
+    it("forces existing Sub2API URL-based edit configs onto multipart uploads", async () => {
+        const legacySub2ApiConfig = {
+            baseUrl: "https://provider.example/v1",
+            model: "gpt-image-2",
+            apiFormat: "openai",
+            advancedConfig: {
+                protocol: "sub2api",
+                requestTemplate: '{"model":"{{model}}","prompt":"{{prompt}}","images":[{"image_url":"{{image}}"}]}',
+                referenceRule: "图生图使用 /images/edits JSON 请求体，参考图字段必须是 images[].image_url。",
+            },
+        } as never;
+
+        await expect(shouldUseJsonImageEdit(legacySub2ApiConfig)).resolves.toBe(false);
     });
 
     it("treats a model-level protocol as strict even when the parent channel is legacy auto", () => {

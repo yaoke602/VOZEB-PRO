@@ -55,7 +55,12 @@ describe("channel protocol registry", () => {
             video: { createPath: "/videos", queryPath: "/videos/:task_id", requestTemplate: expect.stringContaining("multipart/form-data") },
             audio: { createPath: "/audio/speech" },
         });
-        expect(channelProtocolDefinition("sub2api").operations.image).toMatchObject({ createPath: "/images/generations", editPath: "/images/edits", requestTemplate: expect.stringContaining("image_url") });
+        expect(channelProtocolDefinition("sub2api").operations.image).toMatchObject({
+            createPath: "/images/generations",
+            editPath: "/images/edits",
+            requestTemplate: expect.not.stringContaining("image_url"),
+            referenceRule: expect.stringContaining("multipart/form-data"),
+        });
         expect(channelProtocolDefinition("newapi").operations).toEqual(channelProtocolDefinition("openai").operations);
         expect(channelProtocolDefinition("seedance").operations.video).toMatchObject({ createPath: "/contents/generations/tasks", queryPath: "/contents/generations/tasks/:task_id", resultField: "content.video_url" });
         expect(channelProtocolDefinition("volcengine-video").operations.video).toEqual(channelProtocolDefinition("seedance").operations.video);
@@ -237,6 +242,18 @@ describe("channel protocol registry", () => {
         );
 
         expect(configured.advancedConfig!.modelConfigs![key]).toEqual(applyModelProtocol({ capability: "image" }, "openai"));
+        expect(channelProtocolValidationErrors(configured)).toEqual([]);
+    });
+
+    it("accepts the legacy Sub2API URL template while runtime migrates edits to multipart", () => {
+        const configured = applyChannelProtocol({ ...channel, models: ["gpt-image-2"] }, "sub2api");
+        const modelConfig = configured.advancedConfig!.modelConfigs!["gpt-image-2"];
+        configured.advancedConfig!.modelConfigs!["gpt-image-2"] = {
+            ...modelConfig,
+            requestTemplate: '{"model":"{{model}}","prompt":"{{prompt}}","images":[{"image_url":"{{image}}"}]}',
+            referenceRule: "图生图使用 /images/edits JSON 请求体，参考图字段必须是 images[].image_url。",
+        };
+
         expect(channelProtocolValidationErrors(configured)).toEqual([]);
     });
 

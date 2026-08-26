@@ -104,7 +104,7 @@ describe("OpenAI image provider over a live compatible fixture", () => {
         }
     });
 
-    it("sends sub2api edits to images/edits with images[].image_url", async () => {
+    it("uploads every Sub2API edit reference as a multipart image file", async () => {
         const fixture = createProtocolFixtureServer();
         await new Promise<void>((resolve) => fixture.server.listen(0, "127.0.0.1", resolve));
         const address = fixture.server.address();
@@ -114,8 +114,8 @@ describe("OpenAI image provider over a live compatible fixture", () => {
             id: "image-sub2api-live",
             kind: "edit",
             references: [
-                { type: "image/png", dataUrl: "https://cdn.example.com/reference-primary.png" },
-                { type: "image/png", dataUrl: "https://cdn.example.com/reference-secondary.png" },
+                { name: "reference-primary.png", type: "image/png", dataUrl: PNG_DATA_URL },
+                { name: "reference-secondary.png", type: "image/png", dataUrl: PNG_DATA_URL },
             ],
             config: {
                 baseUrl: origin,
@@ -131,10 +131,12 @@ describe("OpenAI image provider over a live compatible fixture", () => {
             await expect(runOpenAiImageTask(task, "", "", "", true)).resolves.toMatchObject({ dataUrl: expect.stringMatching(/^data:image\/png;base64,/) });
             expect(fixture.requests).toHaveLength(1);
             expect(fixture.requests[0]?.path).toBe("/v1/images/edits");
-            const body = JSON.parse(fixture.requests[0]?.body.toString("utf8") || "{}");
-            expect(body.images).toEqual([{ image_url: "https://cdn.example.com/reference-primary.png" }, { image_url: "https://cdn.example.com/reference-secondary.png" }]);
-            expect(body.image_urls).toBeUndefined();
-            expect(body.output_format).toBe("png");
+            expect(fixture.requests[0]?.contentType).toMatch(/^multipart\/form-data; boundary=/);
+            const body = fixture.requests[0]?.body.toString("latin1") || "";
+            expect(body).toContain('name="image"; filename="reference-primary.png"');
+            expect(body).toContain('name="image"; filename="reference-secondary.png"');
+            expect(body.match(/name="image"; filename=/g)).toHaveLength(2);
+            expect(body).not.toContain("image_url");
             expect(fixture.requests[0]?.headers["idempotency-key"]).toBe("image-task:image-sub2api-live:attempt:1");
         } finally {
             await new Promise<void>((resolve, reject) => fixture.server.close((error?: Error) => (error ? reject(error) : resolve())));

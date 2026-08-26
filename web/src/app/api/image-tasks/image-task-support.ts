@@ -148,7 +148,10 @@ export async function shouldUseJsonImageEdit(config: ImageTaskConfig) {
     if (globalAiOpcImagePreset(config)) return true;
     const referenceMode = configuredImageEditReferenceMode(config);
     const apiBase = await resolveConfiguredApiBaseUrl(config.baseUrl).catch(() => config.baseUrl);
-    if (shouldUseSub2ApiImageEdit(config, apiBase)) return true;
+    // Sub2API accepts repeated `image` file parts on /images/edits. Always upload
+    // the bytes so existing channels with the legacy images[].image_url template
+    // no longer depend on the upstream provider downloading a public URL.
+    if (shouldUseSub2ApiImageEdit(config, apiBase)) return false;
     if (referenceMode === "json" || referenceMode === "public-url") return true;
     if (referenceMode === "multipart") return false;
     return false;

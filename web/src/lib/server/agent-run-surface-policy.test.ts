@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { DEFAULT_SETTINGS } from "@/lib/auth/store-foundation";
 
-import { agentPlannerInput, agentPlannerSystemPrompt, buildAgentPlannerInput, compactCanvasSnapshot, plannerAgentSkills, selectAgentSkills } from "./agent-run-surface-policy";
+import { agentPlannerInput, agentPlannerSystemPrompt, assetAccessUrl, buildAgentPlannerInput, compactCanvasSnapshot, plannerAgentSkills, selectAgentSkills } from "./agent-run-surface-policy";
 import { filterAgentPlannerModels, resolveAgentPlanningProfile } from "./agent-run-planning-profile";
 
 describe("selectAgentSkills", () => {
@@ -27,6 +27,21 @@ describe("selectAgentSkills", () => {
     it("keeps drama skills inside drama projects", () => {
         expect(selectAgentSkills(DEFAULT_SETTINGS, "drama", ["drama-planning"]).map((skill) => skill.id)).toEqual(["drama-planning"]);
         expect(selectAgentSkills(DEFAULT_SETTINGS, "drama", ["image-motion"])).toEqual([]);
+    });
+});
+
+describe("assetAccessUrl", () => {
+    it("prefers the stable VOZEB server URL over an expiring upstream URL", () => {
+        expect(
+            assetAccessUrl({
+                serverUrl: "/api/generation-log-assets/permanent/reference.png",
+                remoteUrl: "https://upstream.example.com/temporary.png?expires=1",
+            } as never),
+        ).toBe("/api/generation-log-assets/permanent/reference.png");
+    });
+
+    it("keeps remote-only assets usable", () => {
+        expect(assetAccessUrl({ remoteUrl: "https://cdn.example.com/reference.png" } as never)).toBe("https://cdn.example.com/reference.png");
     });
 });
 

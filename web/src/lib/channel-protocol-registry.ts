@@ -193,7 +193,7 @@ export const registeredChannelProtocolDefinitions: ChannelProtocolDefinition[] =
     {
         id: "sub2api",
         label: "sub2api",
-        description: "sub2api 聚合接口；文本沿用 OpenAI，图生图严格使用 images[].image_url。",
+        description: "sub2api 聚合接口；文本沿用 OpenAI，图生图通过 multipart 直接上传参考图片。",
         apiFormat: "openai",
         authMode: "bearer",
         modelCatalogPaths: ["/v1/models"],
@@ -203,8 +203,7 @@ export const registeredChannelProtocolDefinitions: ChannelProtocolDefinition[] =
             image: {
                 ...openAiOperations.image!,
                 editPath: "/images/edits",
-                requestTemplate: '{"model":"{{model}}","prompt":"{{prompt}}","images":[{"image_url":"{{image}}"}],"size":"{{size}}"}',
-                referenceRule: "图生图使用 /images/edits JSON 请求体，参考图字段必须是 images[].image_url。",
+                referenceRule: "图生图使用 /images/edits multipart/form-data 请求体，每张参考图使用一个 image 文件字段。",
             },
         },
         strict: true,
@@ -456,7 +455,9 @@ export function channelProtocolValidationErrors(channel: SystemModelChannel) {
         if ((config.editPath || "") !== (expected.editPath || "")) errors.push(`${model} 的图生图路径必须为 ${expected.editPath || "空"}`);
         if ((config.imageToVideoPath || "") !== (expected.imageToVideoPath || "")) errors.push(`${model} 的图生视频路径必须为 ${expected.imageToVideoPath || "空"}`);
         if ((config.queryPath || "") !== (expected.queryPath || "")) errors.push(`${model} 的查询路径必须为 ${expected.queryPath || "空"}`);
-        if ((config.requestTemplate || "") !== (expected.requestTemplate || "")) errors.push(`${model} 的请求参数必须使用 ${definition.label} 协议预设`);
+        if ((config.requestTemplate || "") !== (expected.requestTemplate || "") && !isLegacySub2ApiImageTemplate(protocol, capability, config.requestTemplate)) {
+            errors.push(`${model} 的请求参数必须使用 ${definition.label} 协议预设`);
+        }
         if ((config.resultField || "") !== (expected.resultField || "")) errors.push(`${model} 的结果字段必须使用 ${definition.label} 协议预设`);
         if ((config.statusField || "") !== (expected.statusField || "")) errors.push(`${model} 的状态字段必须使用 ${definition.label} 协议预设`);
         if (Boolean(config.supportsReferenceImage) !== Boolean(expected.supportsReferenceImage)) errors.push(`${model} 的参考图片能力必须使用 ${definition.label} 协议预设`);
@@ -464,6 +465,11 @@ export function channelProtocolValidationErrors(channel: SystemModelChannel) {
         if (Boolean(config.supportsReferenceAudio) !== Boolean(expected.supportsReferenceAudio)) errors.push(`${model} 的参考音频能力必须使用 ${definition.label} 协议预设`);
     }
     return errors;
+}
+
+function isLegacySub2ApiImageTemplate(protocol: SystemChannelProtocol, capability: LogicalModelCapability, requestTemplate: string | undefined) {
+    if (protocol !== "sub2api" || capability !== "image") return false;
+    return /\bimage_urls\b|images\[\]\.image_url|"images"\s*:\s*\[\s*\{\s*"image_url"/i.test(requestTemplate || "");
 }
 
 function isSafeAuthHeaderName(value: string | undefined) {
