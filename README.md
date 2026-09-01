@@ -560,6 +560,9 @@ docker build `
 --build-arg DEBIAN_MIRROR=http://mirrors.aliyun.com/debian `
 --build-arg DEBIAN_SECURITY_MIRROR=http://mirrors.aliyun.com/debian-security `
 -t vozeb-pro:local .
+
+docker build --build-arg DEBIAN_MIRROR=http://mirrors.aliyun.com/debian --build-arg DEBIAN_SECURITY_MIRROR=http://mirrors.aliyun.com/debian-security -t vozeb-pro:local .
+
 docker compose up -d --force-recreate app generation-worker
 docker compose ps
 

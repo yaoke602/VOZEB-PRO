@@ -4,7 +4,7 @@
 
 ## Web 应用
 
-共 464 个运行时依赖记录。
+共 467 个运行时依赖记录。
 
 | 包 | 版本 | 许可证 | 项目主页 |
 | --- | --- | --- | --- |
@@ -66,6 +66,8 @@
 | @jridgewell/resolve-uri | 3.1.2 | MIT | [链接](https://github.com/jridgewell/resolve-uri#readme) |
 | @jridgewell/sourcemap-codec | 1.5.5 | MIT | [链接](https://github.com/jridgewell/sourcemaps/tree/main/packages/sourcemap-codec) |
 | @jridgewell/trace-mapping | 0.3.31 | MIT | [链接](https://github.com/jridgewell/sourcemaps/tree/main/packages/trace-mapping) |
+| @modelcontextprotocol/core | 2.0.0 | MIT | [链接](https://modelcontextprotocol.io) |
+| @modelcontextprotocol/server | 2.0.0 | MIT | [链接](https://modelcontextprotocol.io) |
 | @next/env | 16.2.12 | MIT | [链接](https://github.com/vercel/next.js#readme) |
 | @next/swc-win32-x64-msvc | 16.2.12 | MIT | [链接](https://github.com/vercel/next.js#readme) |
 | @noble/hashes | 2.2.0 | MIT | [链接](https://paulmillr.com/noble/) |
@@ -470,6 +472,7 @@
 | xtend | 4.0.2 | MIT | [链接](https://github.com/Raynos/xtend) |
 | yallist | 3.1.1 | ISC | [链接](https://github.com/isaacs/yallist#readme) |
 | yaml | 1.10.3, 2.9.0 | ISC | [链接](https://eemeli.org/yaml/) |
+| zod | 4.4.3 | MIT | [链接](https://zod.dev) |
 | zustand | 5.0.14 | MIT | [链接](https://github.com/pmndrs/zustand) |
 | zwitch | 2.0.4 | MIT | [链接](https://github.com/wooorm/zwitch#readme) |
 
