@@ -7,7 +7,9 @@ import { getAuthSettings } from "@/lib/auth/store";
 import { CreativeRuntimeInputError, normalizeCreativeRunRequest } from "@/lib/creative-runtime-contract";
 import { resolveSiteTitle } from "@/lib/site-brand";
 import { publicAgentRun } from "@/lib/server/agent-run-public";
-import { createAgentRun, getAgentRun, getAgentRunByClientRequestId } from "@/lib/server/agent-run-store";
+import { createAgentRun, getAgentRun, getAgentRunByClientRequestId, type AgentRun } from "@/lib/server/agent-run-store";
+import { createMcpCanvasProject, getMcpCanvasProject, mcpCanvasRunSnapshot, syncMcpCanvasRunProject } from "@/lib/server/mcp-canvas-service";
+import { canvasProjectError } from "@/lib/server/canvas-project-service";
 import { CreativeStoreConflict, getCreativeAssetsByIds } from "@/lib/server/creative-runtime-store";
 import { withGenerationConcurrencyLimit } from "@/lib/server/generation-task-store";
 import { runGenerationTaskRecoveryBatch } from "@/lib/server/generation-task-recovery-service";
@@ -27,6 +29,18 @@ function createRunInput(siteTitle: string) {
 }
 
 const getRunInput = z.object({ runId: z.string().min(1).max(160).describe("agent_run_create 返回的任务 ID") });
+
+const createCanvasProjectInput = z.object({ title: z.string().min(1).max(120).optional().describe("画布标题；不填写时使用网站标题") });
+
+const executeCanvasAgentInput = z.object({
+    projectId: z.string().min(1).max(160).describe("需要操作的画布项目 ID"),
+    prompt: z.string().min(1).max(4000).describe("交给画布 Agent 的操作要求"),
+    requestId: z.string().min(1).max(120).optional().describe("调用方幂等请求标识"),
+    selectedNodeIds: z.array(z.string().min(1).max(160)).default([]).describe("需要重点参考或修改的画布节点 ID"),
+    assetIds: z.array(z.string().min(1).max(160)).max(10).default([]).describe("当前绑定用户已有素材 ID"),
+});
+
+const getCanvasAgentInput = z.object({ runId: z.string().min(1).max(160).describe("canvas_agent_execute 返回的任务 ID") });
 
 export const vozebMcpHandler = createMcpHandler(async ({ authInfo }) => {
     const siteTitle = resolveSiteTitle((await getPublicSiteSettings()).title);
@@ -55,18 +69,8 @@ function createVozebMcpServer(userId: string, siteTitle: string) {
                     modelIds: [],
                     ...(value.mode === "agent" ? {} : { preferences: { mode: value.mode } }),
                 });
-                const existing = await getAgentRunByClientRequestId(userId, input.clientRequestId);
-                if (existing) return result({ run: publicAgentRun(existing), created: false });
-
-                const rate = await checkRateLimit(`agent-run:${userId}`, { maxRequests: 10, windowMs: 60 * 1000 });
-                if (!rate.allowed) return failure("Agent 请求过于频繁，请稍后重试");
-
-                const settings = await getAuthSettings();
-                const created = await withGenerationConcurrencyLimit(userId, "agent", 10 * 60 * 1000, settings.generationConcurrency.agent, () => createAgentRun(userId, input));
-                if (!created) return failure(`当前最多同时运行 ${settings.generationConcurrency.agent} 个 Agent 任务`);
-
-                if (created.created) scheduleRecovery(context.http?.req, created.run.id);
-                return result({ run: publicAgentRun(created.run), created: created.created });
+                const submitted = await submitMcpRun(userId, input, context.http?.req);
+                return "error" in submitted ? failure(submitted.error) : result({ run: publicAgentRun(submitted.run), created: submitted.created });
             } catch (error) {
                 if (error instanceof CreativeRuntimeInputError || error instanceof CreativeStoreConflict) return failure(error.message);
                 console.error("MCP Agent run creation failed", error);
@@ -107,7 +111,102 @@ function createVozebMcpServer(userId: string, siteTitle: string) {
         },
     );
 
+    server.registerTool(
+        "canvas_project_create",
+        {
+            title: `创建 ${siteTitle} 画布`,
+            description: `创建一个可由 ${siteTitle} Canvas Agent 操作、并可在网页继续查看和编辑的画布项目。`,
+            inputSchema: createCanvasProjectInput,
+        },
+        async ({ title }, context) => {
+            try {
+                const project = await createMcpCanvasProject(userId, title || `${siteTitle} 画布`);
+                const url = canvasUrl(context.http?.req, project.id);
+                return linkedResult({ project: canvasProjectSummary(project), canvasUrl: url }, url, `打开 ${siteTitle} 画布`);
+            } catch (error) {
+                const known = canvasProjectError(error);
+                if (known) return failure(known.message);
+                console.error("MCP Canvas project creation failed", error);
+                return failure("画布项目创建失败");
+            }
+        },
+    );
+
+    server.registerTool(
+        "canvas_agent_execute",
+        {
+            title: `使用 ${siteTitle} Agent 操作画布`,
+            description: `让 ${siteTitle} Canvas Agent 理解要求并操作已有画布。任务异步执行，随后使用 canvas_agent_get 查询并把操作保存到画布项目。`,
+            inputSchema: executeCanvasAgentInput,
+        },
+        async (value, context) => {
+            try {
+                const project = await getMcpCanvasProject(userId, value.projectId);
+                const input = normalizeCreativeRunRequest({
+                    clientRequestId: value.requestId || `mcp-canvas-${nanoid()}`,
+                    surface: "canvas",
+                    projectId: project.id,
+                    prompt: value.prompt,
+                    snapshot: mcpCanvasRunSnapshot(project, value.selectedNodeIds),
+                    assetIds: value.assetIds,
+                    skillIds: [],
+                    modelIds: [],
+                });
+                const submitted = await submitMcpRun(userId, input, context.http?.req);
+                if ("error" in submitted) return failure(submitted.error);
+                const url = canvasUrl(context.http?.req, project.id);
+                return linkedResult({ run: publicAgentRun(submitted.run), created: submitted.created, project: canvasProjectSummary(project), canvasUrl: url }, url, `打开 ${siteTitle} 画布`);
+            } catch (error) {
+                const known = canvasProjectError(error);
+                if (known) return failure(known.message);
+                if (error instanceof CreativeRuntimeInputError || error instanceof CreativeStoreConflict) return failure(error.message);
+                console.error("MCP Canvas Agent execution failed", error);
+                return failure("画布 Agent 任务创建失败");
+            }
+        },
+    );
+
+    server.registerTool(
+        "canvas_agent_get",
+        {
+            title: `查询 ${siteTitle} 画布 Agent 任务`,
+            description: `查询画布 Agent 状态，并将已经产生的节点和连线操作同步保存到 ${siteTitle} 画布。planning 或 running 时请稍后再次查询。`,
+            inputSchema: getCanvasAgentInput,
+        },
+        async ({ runId }, context) => {
+            try {
+                const run = await getAgentRun(runId);
+                if (!run || run.userId !== userId || run.surface !== "canvas" || !run.projectId) return failure("画布 Agent 任务不存在");
+                if (run.status === "planning" || run.status === "running") scheduleRecovery(context.http?.req, run.id);
+                const synced = await syncMcpCanvasRunProject(userId, run);
+                const url = canvasUrl(context.http?.req, synced.project.id);
+                return linkedResult({ run: publicAgentRun(run), project: canvasProjectSummary(synced.project), appliedOps: synced.appliedOps, canvasUrl: url }, url, `打开 ${siteTitle} 画布`);
+            } catch (error) {
+                const known = canvasProjectError(error);
+                if (known) return failure(known.message);
+                console.error("MCP Canvas Agent query failed", error);
+                return failure(error instanceof Error ? error.message : "画布 Agent 任务查询失败");
+            }
+        },
+    );
+
     return server;
+}
+
+async function submitMcpRun(userId: string, input: ReturnType<typeof normalizeCreativeRunRequest>, request: Request | undefined): Promise<{ run: AgentRun; created: boolean } | { error: string }> {
+    const existing = await getAgentRunByClientRequestId(userId, input.clientRequestId);
+    if (existing) {
+        const sameScope = existing.surface === input.surface && (existing.projectId || "") === (input.projectId || "");
+        if (!sameScope) return { error: "请求标识已被其他创作入口或画布项目使用，请更换 requestId" };
+        return { run: existing, created: false };
+    }
+    const rate = await checkRateLimit(`agent-run:${userId}`, { maxRequests: 10, windowMs: 60 * 1000 });
+    if (!rate.allowed) return { error: "Agent 请求过于频繁，请稍后重试" };
+    const settings = await getAuthSettings();
+    const created = await withGenerationConcurrencyLimit(userId, "agent", 10 * 60 * 1000, settings.generationConcurrency.agent, () => createAgentRun(userId, input));
+    if (!created) return { error: `当前最多同时运行 ${settings.generationConcurrency.agent} 个 Agent 任务` };
+    if (created.created) scheduleRecovery(request, created.run.id);
+    return { run: created.run, created: created.created };
 }
 
 function scheduleRecovery(request: Request | undefined, runId: string) {
@@ -132,8 +231,27 @@ function absoluteUrl(value: string, origin: string) {
     }
 }
 
+function canvasUrl(request: Request | undefined, projectId: string) {
+    const origin = request ? resolvePublicRequestOrigin(request) : process.env.NEXT_PUBLIC_SITE_URL || "";
+    return absoluteUrl(`/canvas/${encodeURIComponent(projectId)}`, origin);
+}
+
+function canvasProjectSummary(project: { id: string; title: string; nodes: unknown[]; connections: unknown[]; createdAt: string; updatedAt: string }) {
+    return { id: project.id, title: project.title, nodeCount: project.nodes.length, connectionCount: project.connections.length, createdAt: project.createdAt, updatedAt: project.updatedAt };
+}
+
 function result(data: Record<string, unknown>) {
     return { content: [{ type: "text" as const, text: JSON.stringify(data) }], structuredContent: data };
+}
+
+function linkedResult(data: Record<string, unknown>, url: string, name: string) {
+    return {
+        content: [
+            { type: "text" as const, text: `${JSON.stringify(data)}\n\n[${name}](${url})` },
+            { type: "resource_link" as const, name, uri: url, description: "在浏览器中查看和编辑画布", mimeType: "text/html" },
+        ],
+        structuredContent: data,
+    };
 }
 
 function failure(message: string) {
