@@ -15,11 +15,16 @@ describe("resource library layout", () => {
         expect(header).toContain('label: "图片管理"');
         expect(header).toContain('label: "脚本管理"');
         expect(header).toContain('label: "音频管理"');
+        expect(header).toContain("optimisticActive");
+        expect(header).toContain("onNavigate?.(section.id)");
+        expect(header).toContain("ResourceLibraryContentSkeleton");
         expect(works).toContain("<ResourceLibraryHeader");
         expect(works).toContain('active="works"');
         expect(works).toContain("listWorkPublications");
         expect(assets).toContain("<ResourceLibraryHeader");
         expect(assets).toContain("useAssetPage");
+        expect(assets).toContain("onNavigate={navigateResourceSection}");
+        expect(works).toContain("navigationPending");
         expect(assets).toContain('{ label: "脚本", value: "text" }');
     });
 

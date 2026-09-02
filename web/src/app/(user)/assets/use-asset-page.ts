@@ -12,6 +12,8 @@ export function useAssetPage(input: { userId: string; page: number; pageSize: nu
     const [error, setError] = useState("");
     const [reloadToken, setReloadToken] = useState(0);
     const [keyword, setKeyword] = useState(input.keyword.trim());
+    const queryKey = `${input.userId}\u0000${input.page}\u0000${input.pageSize}\u0000${input.kind}\u0000${keyword}`;
+    const [loadedQueryKey, setLoadedQueryKey] = useState("");
 
     useEffect(() => {
         const timer = setTimeout(() => setKeyword(input.keyword.trim()), 220);
@@ -24,6 +26,7 @@ export function useAssetPage(input: { userId: string; page: number; pageSize: nu
             setTotal(0);
             setError("");
             setLoading(false);
+            setLoadedQueryKey(queryKey);
             return;
         }
         const controller = new AbortController();
@@ -39,21 +42,25 @@ export function useAssetPage(input: { userId: string; page: number; pageSize: nu
             controller.signal,
         )
             .then((result) => {
+                if (controller.signal.aborted) return;
                 setAssets(result.assets);
                 setTotal(result.total);
+                setLoadedQueryKey(queryKey);
             })
             .catch((reason) => {
                 if (reason instanceof DOMException && reason.name === "AbortError") return;
                 setAssets([]);
                 setTotal(0);
                 setError(reason instanceof Error ? reason.message : "素材加载失败");
+                setLoadedQueryKey(queryKey);
             })
             .finally(() => {
                 if (!controller.signal.aborted) setLoading(false);
             });
         return () => controller.abort();
-    }, [input.kind, input.page, input.pageSize, input.userId, keyword, reloadToken]);
+    }, [input.kind, input.page, input.pageSize, input.userId, keyword, queryKey, reloadToken]);
 
     const reload = useCallback(() => setReloadToken((value) => value + 1), []);
-    return { assets, total, loading, error, reload };
+    const current = loadedQueryKey === queryKey;
+    return { assets: current ? assets : [], total: current ? total : 0, loading: Boolean(input.userId) && (!current || loading), error: current ? error : "", reload };
 }

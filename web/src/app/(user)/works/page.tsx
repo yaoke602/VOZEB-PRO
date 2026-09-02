@@ -20,7 +20,7 @@ import {
     type WorkPublicationSourceType,
 } from "@/services/api/work-publications";
 import { submitWorkAppeal } from "@/services/api/work-governance";
-import { ResourceLibraryHeader } from "../assets/resource-library-header";
+import { ResourceLibraryContentSkeleton, ResourceLibraryHeader, type ResourceLibrarySection } from "../assets/resource-library-header";
 import { WorkPublicationEditor } from "./components/work-publication-editor";
 import { formatWorkTime, SOURCE_TYPE_LABELS, VISIBILITY_LABELS, workSharePath, workStatusLabel, WORK_STATUS_OPTIONS } from "./work-publication-values";
 
@@ -46,6 +46,7 @@ export default function WorksPage() {
     const [editingWorkId, setEditingWorkId] = useState<string>();
     const [appealWork, setAppealWork] = useState<WorkPublication>();
     const [appealDescription, setAppealDescription] = useState("");
+    const [navigationPending, setNavigationPending] = useState(false);
 
     useEffect(() => {
         const timer = window.setTimeout(() => setDebouncedKeyword(keyword.trim()), 300);
@@ -191,6 +192,7 @@ export default function WorksPage() {
             <div className="mx-auto w-full max-w-[1560px] px-3 py-3 sm:px-6 sm:py-6">
                 <ResourceLibraryHeader
                     active="works"
+                    onNavigate={(section: ResourceLibrarySection) => setNavigationPending(section !== "works")}
                     actions={
                         <>
                             <Button className="!size-9 !p-0 sm:!size-auto sm:!h-8 sm:!px-3" href="/community" icon={<Compass className="size-4" />} aria-label="浏览作品广场">
@@ -239,7 +241,9 @@ export default function WorksPage() {
                     />
                 </section>
 
-                {error ? (
+                {navigationPending ? (
+                    <ResourceLibraryContentSkeleton label="正在切换资源分类" />
+                ) : error ? (
                     <section className="mt-4 flex min-h-40 flex-col items-center justify-center gap-3 border-y border-rose-200 px-4 text-center dark:border-rose-900/70">
                         <p className="text-sm text-rose-700 dark:text-rose-300">{error}</p>
                         <Button icon={<RefreshCw className="size-4" />} onClick={() => void load()}>
@@ -247,7 +251,7 @@ export default function WorksPage() {
                         </Button>
                     </section>
                 ) : loading && !items.length ? (
-                    <section className="grid min-h-40 place-items-center text-sm text-muted-foreground">正在加载作品...</section>
+                    <ResourceLibraryContentSkeleton label="正在加载成片" />
                 ) : items.length ? (
                     <section className="grid min-w-0 grid-cols-1 gap-3 py-3 sm:grid-cols-2 sm:py-5 xl:grid-cols-3 2xl:grid-cols-4">
                         {items.map((work) => (
@@ -286,7 +290,7 @@ export default function WorksPage() {
                     />
                 )}
 
-                {total > PAGE_SIZE ? <Pagination className="flex justify-center pb-6 pt-2" current={page} pageSize={PAGE_SIZE} total={total} showSizeChanger={false} size="small" onChange={setPage} /> : null}
+                {!navigationPending && total > PAGE_SIZE ? <Pagination className="flex justify-center pb-6 pt-2" current={page} pageSize={PAGE_SIZE} total={total} showSizeChanger={false} size="small" onChange={setPage} /> : null}
             </div>
 
             <WorkPublicationEditor

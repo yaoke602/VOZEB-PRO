@@ -2,7 +2,7 @@
 
 import { FileAudio, FileDown, FileUp, Film, Plus, Search, Upload } from "lucide-react";
 import { useEffect, useRef, useState, type DragEvent as ReactDragEvent } from "react";
-import { App, Button, Form, Input, Modal, Pagination, Select, Space, Spin, Tag, Typography } from "antd";
+import { App, Button, Form, Input, Modal, Pagination, Select, Space, Tag, Typography } from "antd";
 import { saveAs } from "file-saver";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -42,7 +42,7 @@ const assetKindOptions = [
 ];
 
 import { AssetCard, AssetPreviewModal } from "./asset-elements";
-import { ResourceLibraryHeader, type ResourceLibrarySection } from "./resource-library-header";
+import { ResourceLibraryContentSkeleton, ResourceLibraryHeader, type ResourceLibrarySection } from "./resource-library-header";
 import { useAssetPage } from "./use-asset-page";
 
 export default function AssetsPage() {
@@ -61,6 +61,7 @@ export default function AssetsPage() {
     const [keyword, setKeyword] = useState("");
     const requestedKind = assetKindFromQuery(searchParams.get("kind"));
     const [kindFilter, setKindFilter] = useState<AssetKind | "all">(requestedKind);
+    const activeSection: ResourceLibrarySection = kindFilter === "image" ? "image" : kindFilter === "text" ? "text" : kindFilter === "audio" ? "audio" : "assets";
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(10);
     const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
@@ -74,6 +75,7 @@ export default function AssetsPage() {
     const [saving, setSaving] = useState(false);
     const [deleting, setDeleting] = useState(false);
     const [importing, setImporting] = useState(false);
+    const [pendingSection, setPendingSection] = useState<ResourceLibrarySection | null>(null);
     const coverUrl = Form.useWatch("coverUrl", form) || "";
     const title = Form.useWatch("title", form) || "";
     const tags = Form.useWatch("tags", form) || [];
@@ -85,6 +87,10 @@ export default function AssetsPage() {
         setKindFilter(requestedKind);
         setPage(1);
     }, [requestedKind]);
+
+    useEffect(() => {
+        if (pendingSection === activeSection) setPendingSection(null);
+    }, [activeSection, pendingSection]);
 
     const openCreate = () => {
         setEditingAsset(null);
@@ -265,7 +271,15 @@ export default function AssetsPage() {
         }
     };
 
-    const activeSection: ResourceLibrarySection = kindFilter === "image" ? "image" : kindFilter === "text" ? "text" : kindFilter === "audio" ? "audio" : "assets";
+    const leavingAssets = pendingSection === "works";
+
+    const navigateResourceSection = (section: ResourceLibrarySection) => {
+        setPendingSection(section);
+        const nextKind = assetKindForSection(section);
+        if (nextKind === null) return;
+        setPage(1);
+        setKindFilter(nextKind);
+    };
 
     return (
         <div className="h-full min-h-0 overflow-hidden bg-background text-foreground">
@@ -273,6 +287,7 @@ export default function AssetsPage() {
                 <div className="mx-auto max-w-[1560px]">
                     <ResourceLibraryHeader
                         active={activeSection}
+                        onNavigate={navigateResourceSection}
                         actions={
                             <>
                                 <Button icon={<FileDown className="size-4" />} onClick={() => void exportAllAssets()}>
@@ -315,30 +330,29 @@ export default function AssetsPage() {
                                     setKindFilter(value as AssetKind | "all");
                                 }}
                             />
-                            <span className="justify-self-end whitespace-nowrap px-1 text-xs text-muted-foreground">共 {total} 项资源</span>
+                            <span className="justify-self-end whitespace-nowrap px-1 text-xs text-muted-foreground">{leavingAssets || loading ? "正在加载…" : `共 ${total} 项资源`}</span>
                         </div>
                     </section>
 
                     <div className="flex flex-col gap-3 pt-3 sm:gap-5 sm:pt-5">
                         <div className={cn("grid grid-cols-1 gap-3 transition-opacity sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4", loading && assets.length && "opacity-60")} aria-busy={loading}>
-                            {assets.map((asset) => (
-                                <AssetCard
-                                    key={asset.id}
-                                    asset={asset}
-                                    onOpen={() => setPreviewAsset(asset)}
-                                    onEdit={() => openEdit(asset)}
-                                    onCopy={copyAssetText}
-                                    onDownload={downloadImage}
-                                    onDelete={() => setDeletingAsset(asset)}
-                                    onPublish={asset.kind === "text" ? undefined : () => router.push(`/works?sourceType=media&sourceId=${encodeURIComponent(asset.id)}`)}
-                                />
-                            ))}
+                            {!leavingAssets &&
+                                assets.map((asset) => (
+                                    <AssetCard
+                                        key={asset.id}
+                                        asset={asset}
+                                        onOpen={() => setPreviewAsset(asset)}
+                                        onEdit={() => openEdit(asset)}
+                                        onCopy={copyAssetText}
+                                        onDownload={downloadImage}
+                                        onDelete={() => setDeletingAsset(asset)}
+                                        onPublish={asset.kind === "text" ? undefined : () => router.push(`/works?sourceType=media&sourceId=${encodeURIComponent(asset.id)}`)}
+                                    />
+                                ))}
                         </div>
 
-                        {loading && !assets.length ? (
-                            <section className="flex min-h-32 items-center justify-center sm:min-h-56">
-                                <Spin description="正在加载素材" />
-                            </section>
+                        {leavingAssets || (loading && !assets.length) ? (
+                            <ResourceLibraryContentSkeleton label={leavingAssets ? "正在切换到成片管理" : "正在加载素材"} />
                         ) : error ? (
                             <section className="flex min-h-32 flex-col items-center justify-center gap-3 border-y border-border px-4 text-center sm:min-h-56">
                                 <p className="text-sm text-stone-500 dark:text-stone-400">{error}</p>
@@ -350,7 +364,7 @@ export default function AssetsPage() {
                             <CompactEmptyState title="没有找到素材" description="调整筛选条件，或新增一条常用素材。" />
                         ) : null}
 
-                        <div className="flex justify-center overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                        <div className={cn("justify-center overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden", leavingAssets || (loading && !assets.length) ? "hidden" : "flex")}>
                             <Pagination
                                 current={page}
                                 pageSize={pageSize}
@@ -519,4 +533,10 @@ export default function AssetsPage() {
 
 function assetKindFromQuery(value: string | null): AssetKind | "all" {
     return value === "text" || value === "image" || value === "video" || value === "audio" ? value : "all";
+}
+
+function assetKindForSection(section: ResourceLibrarySection): AssetKind | "all" | null {
+    if (section === "works") return null;
+    if (section === "image" || section === "text" || section === "audio") return section;
+    return "all";
 }
