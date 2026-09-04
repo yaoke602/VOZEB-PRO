@@ -33,4 +33,12 @@ CREATE TABLE IF NOT EXISTS qianchuan_records (
     PRIMARY KEY(user_id, account_id, kind, scope, id),
     FOREIGN KEY(user_id, account_id, kind, scope) REFERENCES qianchuan_datasets(user_id, account_id, kind, scope) ON DELETE CASCADE
 );
+CREATE TABLE IF NOT EXISTS qianchuan_analyses (
+    user_id text NOT NULL, request_id text NOT NULL, account_id text NOT NULL,
+    fingerprint text NOT NULL, result jsonb, status text NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','completed','failed')),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY(user_id, request_id),
+    FOREIGN KEY(user_id, account_id) REFERENCES qianchuan_accounts(user_id, id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS vozeb_pro_qianchuan_analyses_latest_idx ON qianchuan_analyses(user_id, account_id, created_at DESC);
 `;

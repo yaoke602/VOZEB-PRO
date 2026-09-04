@@ -159,7 +159,19 @@ async function handleFixtureRequest({ request, response, url, body, tasks, reque
         if (shouldFailRequest(request, model)) return sendJson(response, model.includes("-fail") ? 400 : 503, { error: { message: "fixture video failure" } });
         const id = nextTaskId("video");
         tasks.set(id, { kind: "video", status: model.includes("-slow") ? "pending" : "completed" });
+        if (Object.hasOwn(jsonBody(body), "media")) return sendJson(response, 200, { requestId: "request-not-task", operationStatus: "SUCCEEDED", data: [{ taskId: id, taskStatus: "QUEUED", url: null }], error: null });
         return sendJson(response, 200, { id, task_id: id, status: "queued" });
+    }
+    if (request.method === "GET" && path.startsWith("/tasks/")) {
+        const id = decodeURIComponent(path.slice("/tasks/".length));
+        const task = tasks.get(id);
+        if (!task) return sendJson(response, 404, { error: "Unknown fixture task" });
+        return sendJson(response, 200, {
+            requestId: "query-not-task",
+            operationStatus: "SUCCEEDED",
+            data: [{ taskId: id, taskStatus: task.status === "pending" ? "PROCESSING" : "SUCCEEDED", url: task.status === "pending" ? null : `${url.origin}/media/fixture.mp4` }],
+            error: null,
+        });
     }
     if (request.method === "POST" && path === "/videos/generations") {
         if (

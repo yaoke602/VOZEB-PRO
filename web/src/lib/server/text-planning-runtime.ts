@@ -165,8 +165,14 @@ async function readStructuredResponse(input: StructuredTextRequest, request: Pro
         throw new TextPlanningRequestError(safeUpstreamError(raw, response.status), response.status, retryableStatus(response.status));
     }
     const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-    if (!payload) throw new TextPlanningRequestError("文本模型返回了无效 JSON");
-    if (request.protocol === "custom" && isProviderBusinessError(payload)) throw new TextPlanningRequestError(readProviderError(payload) || "自定义文本协议返回失败");
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        await input.onInvalidResponse?.(response.headers);
+        throw new TextPlanningRequestError("文本模型返回了无效 JSON");
+    }
+    if (request.protocol === "custom" && isProviderBusinessError(payload)) {
+        await input.onInvalidResponse?.(response.headers);
+        throw new TextPlanningRequestError(readProviderError(payload) || "自定义文本协议返回失败");
+    }
     const argumentsText = readProtocolArguments(payload, input.tool.name, request, input.allowNaturalLanguage);
     if (!argumentsText) {
         await input.onInvalidResponse?.(response.headers);

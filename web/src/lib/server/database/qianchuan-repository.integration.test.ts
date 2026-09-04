@@ -51,6 +51,22 @@ describe.skipIf(!url)("Qianchuan real PostgreSQL transactions", () => {
         expect((await repo.page("user-a", { ...q, endDate: "2026-09-03" })).total).toBe(0);
     });
     it("enforces single-use OAuth state and user-bound deletion", async () => {
+        const requestId = randomUUID();
+        const claims = await Promise.all([repo.claimAnalysis("user-a", requestId, "123", "fingerprint"), repo.claimAnalysis("user-a", requestId, "123", "fingerprint")]);
+        expect(claims).toEqual([true, false]);
+        expect(await repo.analysis("user-b", requestId)).toBeUndefined();
+        expect(await repo.latestAnalysis("user-a", "123")).toBeNull();
+        const result = { requestId, question: "测试", query: q, answer: "消耗 0.25 元", source: null, createdAt: new Date().toISOString() };
+        await repo.saveAnalysis("user-a", result);
+        await repo.failAnalysis("user-a", requestId);
+        expect(await repo.analysis("user-a", requestId)).toMatchObject({ status: "completed", result });
+        expect(await repo.latestAnalysis("user-a", "123")).toEqual(result);
+        expect(await repo.latestAnalysis("user-b", "123")).toBeNull();
+        const failedId = randomUUID();
+        await repo.claimAnalysis("user-a", failedId, "123", "another");
+        await repo.failAnalysis("user-a", failedId);
+        expect(await repo.analysis("user-a", failedId)).toMatchObject({ status: "failed" });
+        expect(await repo.latestAnalysis("user-a", "123")).toEqual(result);
         await repo.createState("user-a", "fixture-hash", "1", "https://example.com/api/qianchuan/callback");
         expect(await repo.consumeState("user-b", "fixture-hash", "1", "https://example.com/api/qianchuan/callback")).toBe(false);
         expect(await repo.consumeState("user-a", "fixture-hash", "1", "https://example.com/api/qianchuan/callback")).toBe(true);

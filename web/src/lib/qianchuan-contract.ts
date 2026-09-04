@@ -43,6 +43,22 @@ export type QianchuanPage = {
     error: string | null;
 };
 export const emptyQianchuanMetrics: QianchuanMetrics = { cost: null, revenue: null, orders: null, impressions: null, clicks: null, roi: null };
+export const qianchuanAskSchema = z.object({
+    requestId: z.string().uuid(),
+    question: z.string().trim().min(1).max(4000),
+    query: qianchuanQuerySchema,
+});
+export type QianchuanAsk = z.infer<typeof qianchuanAskSchema>;
+export type QianchuanAnalysis = {
+    requestId: string;
+    question: string;
+    answer: string;
+    query: QianchuanQuery;
+    source: { total: number; returned: number; lastSyncedAt: string | null; warning: string | null; summary: QianchuanMetrics } | null;
+    createdAt: string;
+};
+export const qianchuanScopeNotes =
+    "overview 仅为标准推广账户日报，不含全域；plans 仅为全域商品推广计划；products/images/videos 仅为目录，无商品或素材级投放指标。金额单位元；null 是缺失，不是零。日期为精确已同步区间，未同步不能视为零。summary 覆盖当前筛选的全部记录，items 仅为当前页，不能当作全部明细。不得跨口径相加、分摊、比较或推断因果。";
 export function qianchuanScope(q: Pick<QianchuanQuery, "kind" | "startDate" | "endDate">) {
     return q.kind === "overview" || q.kind === "plans" ? `${q.startDate}/${q.endDate}` : "catalog";
 }

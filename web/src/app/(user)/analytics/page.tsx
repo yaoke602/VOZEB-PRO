@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, App, Button, DatePicker, Form, Input, InputNumber, Modal, Pagination, Select, Skeleton, Tag } from "antd";
-import { BarChart3, CircleCheck, Database, ImageIcon, LockKeyhole, Package, RefreshCw, Settings2, Shirt, ShoppingBag, Sparkles, Video, Wallet } from "lucide-react";
+import { BarChart3, CircleCheck, Database, ImageIcon, Package, RefreshCw, Settings2, Shirt, ShoppingBag, Video, Wallet } from "lucide-react";
 import dayjs from "dayjs";
 import { useUserStore } from "@/stores/use-user-store";
 import { hasAdminPermission } from "@/lib/admin-permissions";
@@ -11,6 +11,7 @@ import { emptyQianchuanMetrics, qianchuanKinds, type QianchuanKind, type Qianchu
 import { authorizeQianchuan, disconnectQianchuanAccount, getQianchuanData, getQianchuanStatus, refreshQianchuanAccounts, saveQianchuanConfig, syncQianchuanData } from "@/services/api/qianchuan";
 import { qianchuanDemoPage } from "./demo-data";
 import styles from "./analytics.module.css";
+import AnalysisPanel from "./analysis-panel";
 
 type Tab = "overview" | "materials" | "products" | "plans";
 const tabs: { id: Tab; label: string }[] = [
@@ -33,6 +34,7 @@ export default function AnalyticsPage() {
     const [selectedAccount, setSelectedAccount] = useState(""),
         [keyword, setKeyword] = useState(""),
         [page, setPage] = useState(1),
+        [pageSize, setPageSize] = useState(10),
         [sort, setSort] = useState<QianchuanQuery["sort"]>("name");
     const [dates, setDates] = useState([dayjs().subtract(6, "day").format("YYYY-MM-DD"), dayjs().format("YYYY-MM-DD")]);
     const [accountModal, setAccountModal] = useState(false),
@@ -46,7 +48,7 @@ export default function AnalyticsPage() {
     const accountId = status?.accounts.find((a) => a.id === selectedAccount)?.id || status?.accounts[0]?.id || "";
     const demo = Boolean(status && !status.accounts.length && !status.connectionCount);
     const kind: QianchuanKind = tab === "materials" ? mediaKind : tab === "overview" ? "plans" : tab;
-    const query: QianchuanQuery = { accountId, kind, startDate: dates[0], endDate: dates[1], page, pageSize: 10, keyword, sort };
+    const query: QianchuanQuery = { accountId, kind, startDate: dates[0], endDate: dates[1], page, pageSize, keyword, sort };
     const overviewQuery: QianchuanQuery = { ...query, kind: "overview", keyword: "", page: 1 };
     const listQuery = useQuery({ queryKey: ["qianchuan-data", userId, query], queryFn: ({ signal }) => getQianchuanData(query, signal), enabled: Boolean(accountId), retry: false });
     const overview = useQuery({ queryKey: ["qianchuan-data", userId, overviewQuery], queryFn: ({ signal }) => getQianchuanData(overviewQuery, signal), enabled: Boolean(accountId), retry: false });
@@ -358,34 +360,27 @@ export default function AnalyticsPage() {
                                 <span>
                                     共 {data?.total ?? 0} 条{!demo && data?.lastSyncedAt ? ` · 同步于 ${dayjs(data.lastSyncedAt).format("MM-DD HH:mm")}` : ""}
                                 </span>
-                                <Pagination current={page} pageSize={10} total={data?.total || 0} onChange={setPage} showSizeChanger={false} size="small" />
+                                <Pagination current={page} pageSize={pageSize} total={data?.total || 0} onChange={setPage} showSizeChanger={false} size="small" />
                             </div>
                         </section>
                     </div>
-                    <aside className={styles.card}>
-                        <div className={styles.cardHeader}>
-                            <h2>AI 投放分析</h2>
-                            <Tag>即将上线</Tag>
-                        </div>
-                        <div className={styles.aiBody}>
-                            <div className={styles.aiIcon}>
-                                <Sparkles size={23} />
-                            </div>
-                            <h3>先看清数据，再理解表现</h3>
-                            <p>AI 查数、素材对比与 MCP 工具将于后续接入。本期先完成真实数据展示。</p>
-                            <div className={styles.aiExample}>
-                                未来可以问
-                                <br />
-                                “最近 7 天，哪些素材值得关注？”
-                                <br />
-                                “比较同商品下不同计划的表现。”
-                            </div>
-                            <div className={styles.aiInput} aria-disabled="true">
-                                AI 查数功能待开放 <LockKeyhole size={15} />
-                            </div>
-                            <p>当前不会调用模型，也不会自动调整预算或投放计划。</p>
-                        </div>
-                    </aside>
+                    <AnalysisPanel
+                        key={`${userId}:${accountId}`}
+                        query={query}
+                        demo={demo}
+                        onApply={(q) => {
+                            setDates([q.startDate, q.endDate]);
+                            setKeyword(q.keyword);
+                            setSort(q.sort);
+                            setPage(q.page);
+                            setPageSize(q.pageSize);
+                            setDetail(null);
+                            if (q.kind === "images" || q.kind === "videos") {
+                                setTab("materials");
+                                setMediaKind(q.kind);
+                            } else setTab(q.kind);
+                        }}
+                    />
                 </div>
                 <Modal title="千川授权账户" open={accountModal} onCancel={() => setAccountModal(false)} footer={null} width={620}>
                     <div className="space-y-4 py-3">

@@ -6,9 +6,12 @@ import { qianchuanQuerySchema } from "@/lib/qianchuan-contract";
 import { QianchuanError } from "@/lib/server/qianchuan-provider";
 import { auditActorFromRequest, safeRecordAuditLog } from "@/lib/server/audit-log-store";
 import { completeQianchuanAuthorization, disconnectQianchuan, qianchuanStatus, readQianchuanPage, refreshQianchuanAccounts, saveQianchuanSettings, startQianchuanAuthorization, syncQianchuan } from "@/lib/server/qianchuan-service";
+import { askQianchuan, latestQianchuanAnalysis } from "@/lib/server/qianchuan-analysis-service";
+import { resolveInternalOrigin } from "@/lib/server/internal-origin";
+import { checkGenerationRateLimit } from "@/lib/server/security";
 
 export const runtime = "nodejs";
-export const maxDuration = 660;
+export const maxDuration = 2400;
 type Context = { params: Promise<{ action: string }> };
 const json = (data: unknown, msg = "OK", status = 200) => NextResponse.json({ code: status === 200 ? 0 : status, data, msg }, { status, headers: { "Cache-Control": "private, no-store" } });
 async function handle(request: Request, context: Context) {
@@ -19,6 +22,7 @@ async function handle(request: Request, context: Context) {
     try {
         if (request.method === "GET") {
             if (action === "status") return json(await qianchuanStatus(user.id, canConfigure));
+            if (action === "analysis") return json(await latestQianchuanAnalysis(user.id, new URL(request.url).searchParams.get("accountId") || ""));
             if (action === "data") {
                 const parsed = qianchuanQuerySchema.safeParse(Object.fromEntries(new URL(request.url).searchParams));
                 if (!parsed.success) throw new QianchuanError(parsed.error.issues[0].message);
@@ -34,6 +38,10 @@ async function handle(request: Request, context: Context) {
             // Global proxy.ts enforces same-origin with the configured trusted-proxy boundary.
             const body = await readJsonBodyResult<unknown>(request);
             if (!body.ok) return json(null, body.message, body.status);
+            if (action === "ask") {
+                if (!(await checkGenerationRateLimit(user.id, request, "text")).allowed) throw new QianchuanError("查数请求过于频繁，请稍后重试", 429);
+                return json(await askQianchuan({ userId: user.id, origin: resolveInternalOrigin(new URL(request.url).origin), cookie: request.headers.get("cookie") || "", signal: request.signal }, body.data));
+            }
             if (action === "settings") {
                 if (!canConfigure) throw new QianchuanError("需要系统管理权限", 403);
                 await saveQianchuanSettings(body.data);

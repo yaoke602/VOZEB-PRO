@@ -130,7 +130,8 @@ describe("PostgreSQL schema lifecycle", () => {
         expect(ddl).toContain("task_type = 'agent' AND status = 'success' AND execution_phase IN ('review_pending', 'reviewing')");
 
         const tableNames = [...ddl.matchAll(/CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+([a-z][a-z0-9_]*)/gi)].map((match) => match[1]).sort();
-        expect(tableNames).toHaveLength(65);
+        expect(tableNames).toHaveLength(66);
+        expect(tableNames).toContain("vozeb_pro_qianchuan_analyses");
         expect(tableNames).toEqual(
             expect.arrayContaining(["vozeb_pro_qianchuan_settings", "vozeb_pro_qianchuan_oauth_states", "vozeb_pro_qianchuan_connections", "vozeb_pro_qianchuan_accounts", "vozeb_pro_qianchuan_datasets", "vozeb_pro_qianchuan_records"]),
         );

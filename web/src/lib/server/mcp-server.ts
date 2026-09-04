@@ -17,6 +17,9 @@ import { resolveInternalOrigin } from "@/lib/server/internal-origin";
 import { resolvePublicRequestOrigin } from "@/lib/server/public-request-origin";
 import { checkRateLimit } from "@/lib/server/security";
 import { getPublicSiteSettings } from "@/lib/server/site-metadata";
+import { qianchuanQuerySchema, qianchuanScopeNotes } from "@/lib/qianchuan-contract";
+import { qianchuanStatus, readQianchuanPage, syncQianchuan } from "./qianchuan-service";
+import { QianchuanError } from "./qianchuan-provider";
 
 function createRunInput(siteTitle: string) {
     return z.object({
@@ -190,6 +193,44 @@ function createVozebMcpServer(userId: string, siteTitle: string) {
         },
     );
 
+    server.registerTool(
+        "qianchuan_accounts",
+        {
+            title: `查询 ${siteTitle} 千川账户`,
+            description: "查询 MCP 绑定用户已授权的千川账户，不返回凭据，不返回演示数据。先通过网页完成授权。",
+            inputSchema: z.object({}),
+            annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+        },
+        async () => {
+            try {
+                const status = await qianchuanStatus(userId, false);
+                return result({ accounts: status.accounts.map(({ id, name }) => ({ id, name })), configured: status.configured, postgres: status.postgres, scopeNotes: qianchuanScopeNotes });
+            } catch {
+                return failure("千川账户读取失败");
+            }
+        },
+    );
+    for (const sync of [false, true])
+        server.registerTool(
+            sync ? "qianchuan_sync" : "qianchuan_query",
+            {
+                title: `${sync ? "同步" : "查询"} ${siteTitle} 千川数据`,
+                description:
+                    (sync ? "仅在用户明确要求更新数据时调用。同步所选账户的一个分类到本地数据库，不改变千川投放实体；可能需要等待。" : "只查询本地已同步数据，支持按日期、分类、名称或 ID、排序和页码查询。先调用 qianchuan_accounts 获取当前用户账户。") +
+                    qianchuanScopeNotes,
+                inputSchema: qianchuanQuerySchema,
+                annotations: { readOnlyHint: !sync, destructiveHint: false, idempotentHint: !sync, openWorldHint: sync },
+            },
+            async (value) => {
+                try {
+                    const query = qianchuanQuerySchema.parse(value);
+                    const data = await (sync ? syncQianchuan(userId, query) : readQianchuanPage(userId, query));
+                    return result({ query, data, scopeNotes: qianchuanScopeNotes, hasMore: query.page * query.pageSize < data.total });
+                } catch (error) {
+                    return failure(error instanceof QianchuanError ? error.message : "千川查询参数无效或操作失败");
+                }
+            },
+        );
     return server;
 }
 

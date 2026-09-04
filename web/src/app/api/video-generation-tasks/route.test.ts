@@ -55,7 +55,10 @@ vi.mock("@/lib/server/video-task-store", () => ({
 }));
 
 import { POST } from "./route";
+import { createUpstream } from "./video-generation-route";
 import { resetChannelRuntimeHealth } from "@/lib/server/channel-runtime-health";
+import { applyChannelProtocol, emptyAdvancedConfig } from "@/lib/channel-protocol-registry";
+import { refundUserPoints } from "@/lib/auth/store";
 
 const channels = [
     { id: "one", name: "主渠道", baseUrl: "https://one.example.com/v1", apiKey: "one-secret", apiFormat: "openai", models: ["video-one"], enabled: true, advancedConfig: { protocol: "openai" } },
@@ -102,6 +105,25 @@ describe("video generation candidate failover", () => {
 
     afterEach(() => vi.unstubAllEnvs());
 
+    it.each(["720", "1080"])("includes selected %sp resolution even with a saved Quicker template missing the field", async (quality) => {
+        mocks.fetchInternalApi.mockResolvedValue(json({ operationStatus: "SUCCEEDED", data: [{ taskId: "quicker-task", taskStatus: "QUEUED" }] }));
+        const advancedConfig = { ...emptyAdvancedConfig(), protocol: "quicker" as const, createPath: "/videos", requestTemplate: '{"model":"{{model}}","prompt":"{{prompt}}","generate_audio":"{{generate_audio}}","duration":"{{duration}}"}' };
+        await createUpstream(
+            "user",
+            "http://localhost",
+            "",
+            { apiSource: "system", apiKey: "system", apiFormat: "openai", baseUrl: "/api/ai/system/one", model: "video-one", advancedConfig },
+            "test video",
+            { vquality: quality, videoSeconds: 5, videoGenerateAudio: true },
+            [],
+            { ...settings.generationPointMultipliers, imageQuality: {} },
+            "quicker-resolution-test",
+        );
+        expect(mocks.fetchInternalApi).toHaveBeenCalledOnce();
+        const body = JSON.parse(String(mocks.fetchInternalApi.mock.calls[0][1].body));
+        expect(body).toEqual({ model: "video-one", prompt: "test video", generate_audio: true, duration: 5, resolution: `${quality}p` });
+    });
+
     it("tries the next binding after explicit route failures", async () => {
         const startedAt = Date.now();
         mocks.fetchInternalApi.mockImplementation(async (url: string) => (url.includes("/api/ai/system/one/") ? json({ error: "not found" }, 404) : json({ id: "upstream-two", status: "queued" })));
@@ -145,6 +167,20 @@ describe("video generation candidate failover", () => {
         expect(mocks.fetchInternalApi.mock.calls.some(([url]) => String(url).includes("/api/ai/system/two/"))).toBe(false);
         expect(mocks.createVideoTask).toHaveBeenCalledOnce();
         expect(mocks.scheduleGenerationTask).toHaveBeenLastCalledWith("video", "local-task", expect.objectContaining({ executionPhase: "needs_review", nextPollAt: undefined, lastUpstreamStatus: "submission_outcome_unknown" }));
+    });
+
+    it.each(["not-json", JSON.stringify({ requestId: "not-a-task", operationStatus: "SUCCEEDED", data: [] })])("preserves Quicker billing for reconciliation without refund or resubmission: %s", async (body) => {
+        const quicker = applyChannelProtocol({ ...channels[0], models: [...channels[0].models], advancedConfig: emptyAdvancedConfig() }, "quicker");
+        mocks.getAuthSettings.mockResolvedValue({ ...settings, systemChannels: [quicker, channels[1]] });
+        mocks.fetchInternalApi.mockResolvedValue(new Response(body, { status: 200, headers: { "x-vozeb-pro-points-cost": "0", "x-vozeb-pro-points-record-id": "original-charge" } }));
+
+        const response = await POST(request());
+
+        expect(response.status).toBe(202);
+        expect(mocks.fetchInternalApi).toHaveBeenCalledOnce();
+        expect(mocks.updateVideoTask).toHaveBeenCalledWith("local-task", { upstream: expect.objectContaining({ id: "", pointsCost: 0, pointsUnits: 1, pointsRecordId: "original-charge" }) });
+        expect(mocks.scheduleGenerationTask).toHaveBeenLastCalledWith("video", "local-task", expect.objectContaining({ executionPhase: "needs_review" }));
+        expect(refundUserPoints).not.toHaveBeenCalled();
     });
 
     it("does not retry another path or binding after an ambiguous server failure", async () => {

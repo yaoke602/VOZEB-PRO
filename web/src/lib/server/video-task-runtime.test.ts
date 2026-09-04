@@ -35,6 +35,19 @@ import type { VideoTask } from "./video-task-store";
 import { createProtocolFixtureServer } from "../../../scripts/protocol-fixture-server.mjs";
 
 describe("video task upstream reconciliation", () => {
+    it("keeps a Quicker query timeout pending, then recovers the same job without treating operationStatus as video status", async () => {
+        const task = videoTask();
+        task.config.advancedConfig = { ...task.config.advancedConfig!, protocol: "quicker", queryPath: "/tasks/:task_id" };
+        mocks.fetchInternalApi
+            .mockResolvedValueOnce(json({ requestId: "not-job", operationStatus: "FAILED", data: [{ taskId: task.upstream.id, taskStatus: "UNKNOWN", url: null }], error: { type: "query_error", retryable: true } }))
+            .mockResolvedValueOnce(json({ operationStatus: "SUCCEEDED", data: [{ taskId: task.upstream.id, taskStatus: "PROCESSING", url: null }], error: null }))
+            .mockResolvedValueOnce(json({ operationStatus: "SUCCEEDED", data: [{ taskId: task.upstream.id, taskStatus: "SUCCEEDED", url: "https://example.com/result.mp4" }], error: null }));
+        await expect(queryVideoTaskUpstream(task, "http://localhost")).rejects.toThrow("继续查询原任务");
+        await expect(queryVideoTaskUpstream(task, "http://localhost")).resolves.toEqual({ state: "pending", status: "processing" });
+        await expect(queryVideoTaskUpstream(task, "http://localhost")).resolves.toMatchObject({ state: "result_ready", resultUrl: "https://example.com/result.mp4" });
+        expect(mocks.refund).not.toHaveBeenCalled();
+        expect(new Set(mocks.fetchInternalApi.mock.calls.map(([url]) => url)).size).toBe(1);
+    });
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.normalize.mockResolvedValue({ url: "/api/reference-assets/result.mp4", mimeType: "video/mp4", durationMs: 5_000 });

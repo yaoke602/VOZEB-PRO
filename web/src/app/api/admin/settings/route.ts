@@ -8,7 +8,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { mergeSystemChannelSecrets, serializeAdminSettingsForUser, systemChannelWebhookSecretValidationError } from "@/lib/server/admin-channel-config";
 import { auditActorFromRequest, safeRecordAuditLog } from "@/lib/server/audit-log-store";
 import { invalidatePublicSiteSettings } from "@/lib/server/site-metadata";
-import { channelProtocolValidationErrors } from "@/lib/channel-protocol-registry";
+import { channelProtocolValidationErrors, normalizeChannelImageEditPaths } from "@/lib/channel-protocol-registry";
 import { hasAllAdminPermissions, hasAnyAdminPermission, type AdminPermission } from "@/lib/admin-permissions";
 
 export const runtime = "nodejs";
@@ -53,7 +53,9 @@ export async function PATCH(request: Request) {
             if (webhookSecretError) throw new AuthInputError(webhookSecretError);
         }
         if (Array.isArray(body.systemChannels) || Array.isArray(body.logicalModels) || body.defaultModels) {
-            const channels = patch.systemChannels || currentSettings.systemChannels;
+            const sourceChannels = patch.systemChannels || currentSettings.systemChannels;
+            const channels = sourceChannels.map(normalizeChannelImageEditPaths);
+            if (channels.some((channel, index) => channel !== sourceChannels[index])) patch.systemChannels = channels;
             const protocolErrors = channels.flatMap(channelProtocolValidationErrors);
             if (protocolErrors.length) throw new AuthInputError(protocolErrors[0]);
             const sourceLogicalModels = Array.isArray(body.logicalModels) ? body.logicalModels : currentSettings.logicalModels;

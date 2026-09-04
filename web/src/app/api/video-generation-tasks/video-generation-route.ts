@@ -21,6 +21,7 @@ import { mediaTaskSource } from "@/lib/media-management-contract";
 import { runGenerationTaskRecoveryBatch } from "@/lib/server/generation-task-recovery-service";
 import { scheduleGenerationTask } from "@/lib/server/generation-task-scheduler";
 import { VIDEO_PROVIDER_MEDIA_KEYS, parseVideoProviderJson, readVideoProviderHttpError, readVideoProviderId, readVideoProviderUrl } from "@/lib/server/video-provider-response";
+import { readQuickerVideoResponse } from "@/lib/server/quicker-video";
 import { buildSeedanceSpecialRequest } from "@/lib/seedance-special";
 import { assertVozebRecommendedVideoReferences, buildVozebRecommendedVideoRequest } from "@/lib/vozeb-recommended-video";
 import { assertGeminiVideoReferences, buildGeminiVideoRequest, geminiVideoCreatePath, normalizeGeminiVideoDuration, parseGeminiVideoCreateResponse } from "@/lib/server/gemini-video-provider";
@@ -170,7 +171,11 @@ export async function POST(request: Request) {
                 lastUpstreamStatus: "submitting",
             });
             try {
-                const upstream = await createUpstream(user.id, origin, cookie, channel, providerPrompt, parameters, references, settings.generationPointMultipliers, billingRequestId);
+                const upstream = await createUpstream(user.id, origin, cookie, channel, providerPrompt, parameters, references, settings.generationPointMultipliers, billingRequestId, async (billing) => {
+                    const billedUpstream = { ...localTask!.upstream, ...billing };
+                    await updateVideoTask(localTask!.id, { upstream: billedUpstream });
+                    localTask = { ...localTask!, upstream: billedUpstream };
+                });
                 await updateVideoTask(localTask.id, { config: channel, upstream, requestedDurationSeconds: parameters.videoSeconds === -1 ? undefined : parameters.videoSeconds, attempts });
                 const task = { ...localTask, config: channel, upstream, requestedDurationSeconds: parameters.videoSeconds === -1 ? undefined : parameters.videoSeconds, attempts };
                 const submittedAt = Date.now();
@@ -221,6 +226,7 @@ export async function createUpstream(
     references: VideoGenerationReference[],
     multipliers: Awaited<ReturnType<typeof getAuthSettings>>["generationPointMultipliers"],
     billingRequestId: string,
+    saveSubmissionBilling?: (billing: Pick<VideoTask["upstream"], "pointsCost" | "pointsUnits" | "pointsRecordId">) => Promise<void>,
 ) {
     let lastError = "";
     const regularReferences = regularVideoReferences(references);
@@ -258,6 +264,7 @@ export async function createUpstream(
         audio: audios[0] || "",
         references,
         content: videoReferenceContent(prompt, references),
+        media: regularReferences.map(({ type, url }) => ({ type, url })),
         first_frame: firstFrameUrl,
         first_frame_url: firstFrameUrl,
         last_frame: lastFrameUrl,
@@ -339,7 +346,7 @@ export async function createUpstream(
                 : buildVideoProviderRequest(channel.advancedConfig?.requestTemplate, defaults, values);
     const requestBody = multipart
         ? await buildOpenAiVideoFormData({ model: channel.model, prompt, seconds: values.seconds as number, width: dimensions.width, height: dimensions.height, imageUrls: firstFrameUrl ? [firstFrameUrl] : images, origin, cookie })
-        : JSON.stringify(payload);
+        : JSON.stringify(channel.advancedConfig?.protocol === "quicker" ? { ...payload, resolution: values.resolution } : payload);
     const imageToVideoPath = images.length || firstFrameUrl ? channel.advancedConfig?.imageToVideoPath?.trim() : "";
     const createPaths = globalPreset ? [globalPreset.createPath] : imageToVideoPath ? [imageToVideoPath] : resolvedProviderCreatePaths(channel.advancedConfig, "video", CREATE_PATHS);
     for (const path of createPaths) {
@@ -354,6 +361,14 @@ export async function createUpstream(
             body: requestBody,
             signal: AbortSignal.timeout(resolveModelRequestTimeoutMs(channel, "video")),
         });
+        // Preserve the original charge for manual reconciliation even when the response body is unusable.
+        if (channel.advancedConfig?.protocol === "quicker" && saveSubmissionBilling) {
+            await saveSubmissionBilling({
+                pointsCost: billedPointsCost(response.headers.get("x-vozeb-pro-points-cost")),
+                pointsUnits: videoUnits(raw, multipliers),
+                pointsRecordId: response.headers.get("x-vozeb-pro-points-record-id") || undefined,
+            });
+        }
         const text = await response.text();
         if (!response.ok) {
             lastError = readVideoProviderHttpError(text, response.status);
@@ -364,11 +379,14 @@ export async function createUpstream(
         try {
             data = parseVideoProviderJson(text);
         } catch (error) {
+            if (channel.advancedConfig?.protocol === "quicker") throw error;
             const pointsCost = billedPointsCost(response.headers.get("x-vozeb-pro-points-cost"));
             const pointsRecordId = response.headers.get("x-vozeb-pro-points-record-id") || undefined;
             if (pointsCost !== undefined && pointsRecordId) await refundUserPoints(userId, generationModelId(channel), pointsCost, "video", videoUnits(raw, multipliers), undefined, pointsRecordId);
             throw error instanceof Error ? error : new Error("视频接口返回了无效 JSON");
         }
+        const quicker = channel.advancedConfig?.protocol === "quicker" ? readQuickerVideoResponse(data) : undefined;
+        if (quicker && quicker.operationStatus !== "SUCCEEDED") throw new Error("快客云未确认提交成功，请先在平台核对任务，不要重复提交");
         const providerError = readProviderError(data);
         if (isProviderBusinessError(data)) {
             const pointsCost = billedPointsCost(response.headers.get("x-vozeb-pro-points-cost"));
@@ -376,8 +394,8 @@ export async function createUpstream(
             if (pointsCost !== undefined && pointsRecordId) await refundUserPoints(userId, generationModelId(channel), pointsCost, "video", videoUnits(raw, multipliers), undefined, pointsRecordId);
             throw new SafeCandidateFailure(providerError || "视频接口请求失败");
         }
-        const resultUrl = readVideoProviderUrl(data, channel.advancedConfig?.resultField);
-        const id = readVideoProviderId(data) || (resultUrl ? `direct:${Date.now()}` : "");
+        const resultUrl = quicker ? (quicker.taskStatus === "SUCCEEDED" ? quicker.url || "" : "") : readVideoProviderUrl(data, channel.advancedConfig?.resultField);
+        const id = quicker ? quicker.taskId : readVideoProviderId(data) || (resultUrl ? `direct:${Date.now()}` : "");
         if (!id) {
             const pointsCost = billedPointsCost(response.headers.get("x-vozeb-pro-points-cost"));
             const pointsRecordId = response.headers.get("x-vozeb-pro-points-record-id") || undefined;

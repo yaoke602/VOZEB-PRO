@@ -17,6 +17,7 @@ const POSTGRES_TABLES = [
     "qianchuan_accounts",
     "qianchuan_datasets",
     "qianchuan_records",
+    "qianchuan_analyses",
     "app_settings",
     "system_model_channels",
     "entitlement_plans",

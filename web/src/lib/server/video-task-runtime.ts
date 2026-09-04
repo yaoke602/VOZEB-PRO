@@ -14,6 +14,7 @@ import { maintenanceWorkerHeaders } from "@/lib/server/maintenance-auth";
 import { systemAiBillingHeaders } from "@/lib/server/system-ai-billing";
 import { refundVideoTask } from "@/lib/server/video-task-refund";
 import { geminiVideoQueryPath, parseGeminiVideoOperation } from "@/lib/server/gemini-video-provider";
+import { readQuickerVideoResponse } from "@/lib/server/quicker-video";
 
 export type VideoUpstreamStep = { state: "pending"; status: string } | { state: "result_ready"; status: string; resultUrl: string } | { state: "failed"; status: string; error: string };
 
@@ -32,6 +33,18 @@ export async function queryVideoTaskUpstream(task: VideoTask, origin: string, co
     if (task.upstream.resultUrl) return { state: "result_ready", status: "completed", resultUrl: task.upstream.resultUrl };
     if (isGeminiVideoTask(task)) return queryGeminiVideoUpstream(task, origin, cookie, workerUserId);
     const data = await queryVideoUpstream(task, origin, cookie, workerUserId);
+    if (task.config.advancedConfig?.protocol === "quicker") {
+        const response = readQuickerVideoResponse(data);
+        if (response.taskId !== task.upstream.id) throw new Error("快客云返回的任务 ID 与当前任务不一致");
+        if (response.operationStatus !== "SUCCEEDED" || response.error) throw new Error("快客云任务查询失败，将继续查询原任务");
+        const status = response.taskStatus.toLowerCase();
+        if (status === "succeeded") {
+            if (!response.url) throw new Error("快客云任务已完成但暂未返回视频地址");
+            return { state: "result_ready", status, resultUrl: response.url };
+        }
+        if (VIDEO_PROVIDER_FAILED.has(status)) return { state: "failed", status, error: "快客云视频任务执行失败" };
+        return { state: "pending", status };
+    }
     const status = readVideoProviderStatus(data, task.config.advancedConfig?.statusField);
     const resultUrl = readVideoProviderUrl(data, task.config.advancedConfig?.resultField);
     if (resultUrl || VIDEO_PROVIDER_SUCCESS.has(status)) {

@@ -1,4 +1,4 @@
-import type { QianchuanAccount, QianchuanPage, QianchuanQuery, QianchuanRecord, QianchuanSettings } from "@/lib/qianchuan-contract";
+import type { QianchuanAccount, QianchuanAnalysis, QianchuanPage, QianchuanQuery, QianchuanRecord, QianchuanSettings } from "@/lib/qianchuan-contract";
 import { emptyQianchuanMetrics, qianchuanScope } from "@/lib/qianchuan-contract";
 import { postgresQuery, type QueryExecutor } from "./postgres";
 
@@ -6,6 +6,24 @@ export type StoredQianchuanSettings = Omit<QianchuanSettings, "hasSecret"> & { s
 export type QianchuanConnection = { id: string; user_id: string; app_id: string; access_ciphertext: string; refresh_ciphertext: string; expires_at: Date };
 export class QianchuanRepository {
     constructor(private db: QueryExecutor = { query: postgresQuery }) {}
+    async analysis(userId: string, requestId: string) {
+        return (await this.db.query<{ fingerprint: string; result: QianchuanAnalysis | null; status: string }>("SELECT fingerprint,result,status FROM qianchuan_analyses WHERE user_id=$1 AND request_id=$2", [userId, requestId])).rows[0];
+    }
+    async latestAnalysis(userId: string, accountId: string) {
+        return (
+            (await this.db.query<{ result: QianchuanAnalysis }>("SELECT result FROM qianchuan_analyses WHERE user_id=$1 AND account_id=$2 AND status='completed' ORDER BY created_at DESC,request_id DESC LIMIT 1", [userId, accountId])).rows[0]?.result ||
+            null
+        );
+    }
+    async claimAnalysis(userId: string, requestId: string, accountId: string, fingerprint: string) {
+        return Boolean((await this.db.query("INSERT INTO qianchuan_analyses(user_id,request_id,account_id,fingerprint) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING RETURNING request_id", [userId, requestId, accountId, fingerprint])).rowCount);
+    }
+    async failAnalysis(userId: string, requestId: string) {
+        await this.db.query("UPDATE qianchuan_analyses SET status='failed' WHERE user_id=$1 AND request_id=$2 AND status='pending'", [userId, requestId]);
+    }
+    async saveAnalysis(userId: string, result: QianchuanAnalysis) {
+        await this.db.query("UPDATE qianchuan_analyses SET result=$3::jsonb,status='completed' WHERE user_id=$1 AND request_id=$2 AND status='pending'", [userId, result.requestId, JSON.stringify(result)]);
+    }
     async settings(): Promise<StoredQianchuanSettings | null> {
         const { rows } = await this.db.query("SELECT * FROM qianchuan_settings WHERE id='default'");
         const r = rows[0];

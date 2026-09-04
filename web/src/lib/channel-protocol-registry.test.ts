@@ -12,6 +12,7 @@ import {
     channelSupportsModelCatalog,
     channelProtocolValidationErrors,
     normalizeStrictProtocolModelConfig,
+    normalizeChannelImageEditPaths,
     protocolAuthHeaders,
     resolveChannelModelConfig,
 } from "./channel-protocol-registry";
@@ -27,9 +28,39 @@ const channel = {
 } satisfies SystemModelChannel;
 
 describe("channel protocol registry", () => {
+    it.each(["openai", "sub2api", "newapi"] as const)("repairs only the strict %s image edit path without mutating the draft", (protocol) => {
+        const configured = applyChannelProtocol({ ...channel, models: ["gpt-image-2"] }, protocol);
+        const original = configured.advancedConfig!.modelConfigs!["gpt-image-2"];
+        for (const editPath of [undefined, "", "/images/generations", "/v1/images/edits"]) {
+            const draft = { ...configured, advancedConfig: { ...configured.advancedConfig!, modelConfigs: { "gpt-image-2": { ...original, editPath } } } };
+            const normalized = normalizeChannelImageEditPaths(draft);
+            expect(normalized.advancedConfig!.modelConfigs!["gpt-image-2"]).toEqual({ ...original, editPath: "/images/edits" });
+            expect(draft.advancedConfig.modelConfigs["gpt-image-2"].editPath).toBe(editPath);
+            expect(normalized.apiKey).toBe(channel.apiKey);
+            expect(channelProtocolValidationErrors(normalized)).toEqual([]);
+            expect(normalizeChannelImageEditPaths(normalized)).toBe(normalized);
+        }
+    });
+
+    it("preserves explicit custom image protocols and video routes", () => {
+        const configured = applyChannelProtocol({ ...channel, models: ["gpt-image-2", "sd2.0"] }, "openai");
+        configured.advancedConfig!.modelConfigs!["gpt-image-2"] = { capability: "image", protocol: "custom", createPath: "/custom/create", editPath: "/custom/edit", requestTemplate: "{}", resultField: "url" };
+        configured.advancedConfig!.modelConfigs!["sd2.0"] = applyModelProtocol({ capability: "video" }, "seedance");
+        expect(normalizeChannelImageEditPaths(configured)).toBe(configured);
+    });
+
+    it("repairs an inherited operation path without changing other operations", () => {
+        const configured = applyChannelProtocol({ ...channel, models: ["gpt-image-2"] }, "openai");
+        configured.advancedConfig!.modelConfigs = {};
+        configured.advancedConfig!.operationConfigs!.image!.editPath = "";
+        const normalized = normalizeChannelImageEditPaths(configured);
+        expect(normalized.advancedConfig!.modelConfigs!["gpt-image-2"].editPath).toBe("/images/edits");
+        expect(normalized.advancedConfig!.operationConfigs).toBe(configured.advancedConfig!.operationConfigs);
+        expect(channelProtocolValidationErrors(normalized)).toEqual([]);
+    });
     it("exposes only active protocols and keeps SD2 separate from Stable Diffusion", () => {
         const protocols = channelProtocolOptions().map((item) => item.value);
-        expect(protocols).toEqual(["openai", "yumeng", "gemini", "seedance", "stable-diffusion", "volcengine-video", "sub2api", "newapi", "custom", "compatible", "auto"]);
+        expect(protocols).toEqual(["openai", "yumeng", "gemini", "seedance", "stable-diffusion", "volcengine-video", "quicker", "sub2api", "newapi", "custom", "compatible", "auto"]);
         expect(protocols).not.toEqual(expect.arrayContaining(["vozeb-recommended", "seedance-special", "globalaiopc"]));
         expect(channelProtocolDefinition("openai").modelCatalogPaths).toEqual(["/v1/models"]);
         expect(channelProtocolDefinition("sub2api").modelCatalogPaths).toEqual(["/v1/models"]);

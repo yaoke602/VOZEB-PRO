@@ -15,9 +15,13 @@ const mocks = vi.hoisted(() => ({
     getMcpCanvasProject: vi.fn(),
     mcpCanvasRunSnapshot: vi.fn(),
     syncMcpCanvasRunProject: vi.fn(),
+    qianchuanStatus: vi.fn(),
+    readQianchuanPage: vi.fn(),
+    syncQianchuan: vi.fn(),
 }));
 
 vi.mock("next/server", () => ({ after: mocks.after }));
+vi.mock("./qianchuan-service", () => ({ qianchuanStatus: mocks.qianchuanStatus, readQianchuanPage: mocks.readQianchuanPage, syncQianchuan: mocks.syncQianchuan }));
 vi.mock("@/lib/auth/store", () => ({ getAuthSettings: mocks.getAuthSettings }));
 vi.mock("@/lib/server/security", () => ({ checkRateLimit: mocks.checkRateLimit }));
 vi.mock("@/lib/server/generation-task-store", () => ({ withGenerationConcurrencyLimit: mocks.withGenerationConcurrencyLimit }));
@@ -55,7 +59,7 @@ describe("VOZEB MCP server", () => {
 
     it("publishes the minimal create and query tools", async () => {
         const payload = await call("tools/list", {});
-        expect(payload.result.tools.map((tool: { name: string }) => tool.name)).toEqual(["agent_run_create", "agent_run_get", "canvas_project_create", "canvas_agent_execute", "canvas_agent_get"]);
+        expect(payload.result.tools.map((tool: { name: string }) => tool.name)).toEqual(["agent_run_create", "agent_run_get", "canvas_project_create", "canvas_agent_execute", "canvas_agent_get", "qianchuan_accounts", "qianchuan_query", "qianchuan_sync"]);
     });
 
     it("uses the configured site title for the MCP service and tool display names", async () => {
@@ -68,7 +72,42 @@ describe("VOZEB MCP server", () => {
         expect(initialized.result.serverInfo).toMatchObject({ name: "测试品牌", version: "0.0.6" });
 
         const listed = await call("tools/list", {});
-        expect(listed.result.tools.map((tool: { title?: string }) => tool.title)).toEqual(["创建 测试品牌 Agent 任务", "查询 测试品牌 Agent 任务", "创建 测试品牌 画布", "使用 测试品牌 Agent 操作画布", "查询 测试品牌 画布 Agent 任务"]);
+        expect(listed.result.tools.map((tool: { title?: string }) => tool.title)).toEqual([
+            "创建 测试品牌 Agent 任务",
+            "查询 测试品牌 Agent 任务",
+            "创建 测试品牌 画布",
+            "使用 测试品牌 Agent 操作画布",
+            "查询 测试品牌 画布 Agent 任务",
+            "查询 测试品牌 千川账户",
+            "查询 测试品牌 千川数据",
+            "同步 测试品牌 千川数据",
+        ]);
+    });
+
+    it("exposes only account identities and scopes reads/syncs to the MCP owner", async () => {
+        mocks.qianchuanStatus.mockResolvedValue({ configured: true, postgres: true, accounts: [{ id: "123", name: "账户", connectionId: "private" }], settings: { secret: "hidden" } });
+        const accounts = await call("tools/call", { name: "qianchuan_accounts", arguments: {} });
+        expect(accounts.result.structuredContent).toMatchObject({ accounts: [{ id: "123", name: "账户" }] });
+        expect(JSON.stringify(accounts)).not.toContain("hidden");
+        expect(JSON.stringify(accounts)).not.toContain("private");
+        const query = { accountId: "123", kind: "plans", startDate: "2026-09-01", endDate: "2026-09-04", page: 1, pageSize: 20, keyword: "", sort: "cost" };
+        mocks.readQianchuanPage.mockResolvedValue({ items: [], total: 30 });
+        const page = await call("tools/call", { name: "qianchuan_query", arguments: query });
+        expect(page.result.structuredContent).toMatchObject({ hasMore: true });
+        expect(mocks.readQianchuanPage).toHaveBeenCalledWith("user-one", query);
+        expect(mocks.syncQianchuan).not.toHaveBeenCalled();
+        mocks.syncQianchuan.mockResolvedValue({ items: [], total: 0 });
+        await call("tools/call", { name: "qianchuan_sync", arguments: query });
+        expect(mocks.syncQianchuan).toHaveBeenCalledWith("user-one", query);
+    });
+
+    it("rejects invalid query arguments and sanitizes unexpected Qianchuan failures", async () => {
+        await call("tools/call", { name: "qianchuan_query", arguments: { accountId: "123", kind: "sql" } });
+        expect(mocks.readQianchuanPage).not.toHaveBeenCalled();
+        mocks.qianchuanStatus.mockRejectedValue(new Error("secret upstream credentials"));
+        const failure = await call("tools/call", { name: "qianchuan_accounts", arguments: {} });
+        expect(JSON.stringify(failure)).not.toContain("secret upstream");
+        expect(failure.result).toMatchObject({ isError: true });
     });
 
     it("creates an image Agent run for the configured MCP user", async () => {

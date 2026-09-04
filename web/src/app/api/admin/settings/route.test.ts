@@ -16,6 +16,8 @@ vi.mock("@/lib/server/audit-log-store", () => ({ auditActorFromRequest: vi.fn(()
 
 import { GET, PATCH } from "./route";
 import { DEFAULT_SITE_SETTINGS } from "@/lib/auth/store";
+import { applyChannelProtocol } from "@/lib/channel-protocol-registry";
+import type { SystemModelChannel } from "@/lib/auth/store";
 
 const savedSettings = {
     systemChannels: [{ id: "one", name: "主渠道", baseUrl: "https://api.example.com/v1", apiKey: "saved-secret", webhookSecret: "0123456789abcdef0123456789abcdef", apiFormat: "openai", models: ["vendor/writer"], enabled: true }],
@@ -24,6 +26,24 @@ const savedSettings = {
 };
 
 describe("admin settings model routing", () => {
+    it.each([true, false])("repairs an existing image path while saving channels=%s, persists and returns the corrected config", async (submitChannels) => {
+        const image = applyChannelProtocol({ ...savedSettings.systemChannels[0], id: "image", models: ["gpt-image-2"] } as SystemModelChannel, "sub2api");
+        image.advancedConfig!.modelConfigs!["gpt-image-2"].editPath = "";
+        let persisted = { ...savedSettings, systemChannels: [...savedSettings.systemChannels, image] };
+        mocks.getFreshAuthSettings.mockImplementation(async () => persisted);
+        mocks.setAuthSettings.mockImplementation(async (patch) => {
+            persisted = { ...persisted, ...patch };
+            return persisted;
+        });
+        const response = await PATCH(request(submitChannels ? { systemChannels: persisted.systemChannels } : { defaultModels: persisted.defaultModels }));
+        expect(response.status).toBe(200);
+        expect(persisted.systemChannels[1]).toMatchObject({ apiKey: "saved-secret", advancedConfig: { modelConfigs: { "gpt-image-2": { editPath: "/images/edits" } } } });
+        const saved = await response.json();
+        const reloaded = await (await GET()).json();
+        expect(reloaded.settings.systemChannels).toEqual(saved.settings.systemChannels);
+        expect(reloaded.settings.systemChannels[1].apiKey).toBe("");
+        expect(reloaded.settings.systemChannels[1].advancedConfig.modelConfigs["gpt-image-2"].editPath).toBe("/images/edits");
+    });
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.getCurrentUser.mockResolvedValue({ id: "admin", role: "admin", status: "active", adminPermissions: ["system.manage", "billing.manage", "upstream.manage"] });

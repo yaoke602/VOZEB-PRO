@@ -1,4 +1,5 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createServer } from "node:http";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { SystemChannelAdvancedConfig, SystemModelChannel } from "@/lib/auth/store";
 import { channelProtocolDefinitions, registeredChannelProtocolDefinitions } from "@/lib/channel-protocol-registry";
@@ -26,6 +27,26 @@ afterAll(async () => {
 });
 
 describe("text planning runtime live protocol fixture", () => {
+    it.each(["not-json", '{"code":500,"message":"fixture failure"}'])("refunds HTTP 200 invalid payload %s over real local TCP", async (body) => {
+        const server = createServer((_request, response) => {
+            response.writeHead(200, { "content-type": "application/json", "x-vozeb-pro-points-cost": "0", "x-vozeb-pro-points-record-id": "fixture-charge" });
+            response.end(body);
+        });
+        await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+        try {
+            const address = server.address();
+            if (!address || typeof address === "string") throw new Error("Missing fixture port");
+            const refund = vi.fn();
+            await expect(requestStructuredText({ ...input(candidate("custom", manualTextOptions("custom"))), origin: `http://127.0.0.1:${address.port}`, onInvalidResponse: refund })).rejects.toThrow();
+            expect(refund).toHaveBeenCalledTimes(1);
+            const headers = refund.mock.calls[0][0] as Headers;
+            expect(headers.get("x-vozeb-pro-points-record-id")).toBe("fixture-charge");
+            expect(headers.get("x-vozeb-pro-points-cost")).toBe("0");
+        } finally {
+            server.closeAllConnections();
+            await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+        }
+    });
     it.each(STRICT_TEXT_PROTOCOLS)("sends the $id preset through Chat and reads strict JSON", async (definition) => {
         const result = await requestStructuredText(input(candidate(definition.id)));
 

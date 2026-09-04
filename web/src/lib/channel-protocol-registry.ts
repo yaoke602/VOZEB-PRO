@@ -191,6 +191,32 @@ export const registeredChannelProtocolDefinitions: ChannelProtocolDefinition[] =
         strict: true,
     },
     {
+        id: "quicker",
+        label: "快客云",
+        description: "快客云视频任务协议，支持普通图片、视频和音频参考；模型 ID 请按平台提供的值手动添加。服务地址不含 /videos。",
+        apiFormat: "openai",
+        authMode: "bearer",
+        defaultBaseUrl: "http://www.51quicker.com:18090/hyperone/xapi/api/v1",
+        modelCatalogPaths: [],
+        capabilities: ["video"],
+        operations: {
+            video: {
+                capability: "video",
+                createPath: "/videos",
+                imageToVideoPath: "/videos",
+                queryPath: "/tasks/:task_id",
+                requestTemplate: '{"model":"{{model}}","prompt":"{{prompt}}","media":"{{media}}","generate_audio":"{{generate_audio}}","duration":"{{duration}}","resolution":"{{resolution}}"}',
+                resultField: "data[0].url",
+                statusField: "data[0].taskStatus",
+                referenceRule: "普通参考使用 media 数组，包含 type 和 url；未定义首尾帧和上游取消能力。",
+                supportsReferenceImage: true,
+                supportsReferenceVideo: true,
+                supportsReferenceAudio: true,
+            },
+        },
+        strict: true,
+    },
+    {
         id: "sub2api",
         label: "sub2api",
         description: "sub2api 聚合接口；文本沿用 OpenAI，图生图通过 multipart 直接上传参考图片。",
@@ -334,18 +360,18 @@ export function normalizeStrictProtocolModelConfig(config: SystemChannelModelCon
 export function resolveChannelModelConfig(config: SystemChannelAdvancedConfig | undefined, model: string) {
     if (!config) return undefined;
     const key = normalizeModelId(model);
-    const modelConfig = config.modelConfigs?.[key];
-    if (modelConfig) return modelConfig;
     const capability = protocolCatalogCapability(config.protocol) || config.modelCapabilities?.[key] || inferModelCapability(model);
-    return config.operationConfigs?.[capability];
+    const modelConfig = config.modelConfigs?.[key] || config.operationConfigs?.[capability];
+    return modelConfig && (modelConfig.protocol || config.protocol) === "quicker" && modelConfig.capability === "video" ? { ...modelConfig, requestTemplate: protocolModelConfig("quicker", "video", model)?.requestTemplate } : modelConfig;
 }
 
 export function resolveChannelModelAdvancedConfig(config: SystemChannelAdvancedConfig | undefined, model: string) {
     if (!config) return undefined;
     const modelConfig = resolveChannelModelConfig(config, model);
-    if (!modelConfig) return config;
+    if (!modelConfig) return config.protocol === "quicker" ? { ...config, cancelPath: undefined, cancelMethod: undefined } : config;
     const { capability: _capability, apiFormat: _apiFormat, ...modelAdvanced } = modelConfig;
-    return { ...config, ...modelAdvanced };
+    const resolved = { ...config, ...modelAdvanced };
+    return resolved.protocol === "quicker" ? { ...resolved, cancelPath: undefined, cancelMethod: undefined } : resolved;
 }
 
 export function applyChannelProtocol(channel: SystemModelChannel, protocol: SystemChannelProtocol): SystemModelChannel {
@@ -372,7 +398,7 @@ export function applyChannelProtocol(channel: SystemModelChannel, protocol: Syst
     const primaryAdvanced = primary ? Object.fromEntries(Object.entries(primary).filter(([key]) => key !== "capability")) : {};
     return {
         ...channel,
-        baseUrl: protocol === "yumeng" ? normalizeYumengModelCenterBaseUrl(channel.baseUrl) : channel.baseUrl.trim() || definition.defaultBaseUrl || "",
+        baseUrl: protocol === "yumeng" ? normalizeYumengModelCenterBaseUrl(channel.baseUrl) : (protocol === "quicker" ? channel.baseUrl.trim().replace(/\/videos\/?$/, "") : channel.baseUrl.trim()) || definition.defaultBaseUrl || "",
         apiFormat: definition.apiFormat,
         models,
         advancedConfig: {
@@ -381,6 +407,7 @@ export function applyChannelProtocol(channel: SystemModelChannel, protocol: Syst
             authMode: definition.authMode,
             modelCatalogPaths: definition.modelCatalogPaths,
             ...primaryAdvanced,
+            ...(protocol === "quicker" ? { cancelPath: undefined, cancelMethod: undefined } : {}),
             modelConfigs,
             modelCapabilities,
             operationConfigs,
@@ -417,6 +444,22 @@ export function channelCredentialsReady(channel: Pick<SystemModelChannel, "apiKe
 
 export function channelConnectionReady(channel: Pick<SystemModelChannel, "baseUrl" | "apiKey" | "hasApiKey" | "advancedConfig">) {
     return Boolean(channel.baseUrl.trim() && channelCredentialsReady(channel));
+}
+
+// Strict image protocols own this path; old drafts must not block unrelated channel saves.
+export function normalizeChannelImageEditPaths(channel: SystemModelChannel): SystemModelChannel {
+    const advanced = channel.advancedConfig;
+    if (!advanced) return channel;
+    let modelConfigs = advanced.modelConfigs;
+    for (const model of channel.models) {
+        const config = resolveChannelModelConfig(advanced, model);
+        if (!config || config.capability !== "image") continue;
+        const protocol = config.protocol || advanced.protocol;
+        if (!channelProtocolDefinition(protocol).strict) continue;
+        const editPath = protocolModelConfig(protocol, "image", model)?.editPath;
+        if (editPath && config.editPath !== editPath) modelConfigs = { ...modelConfigs, [normalizeModelId(model)]: { ...config, editPath } };
+    }
+    return modelConfigs === advanced.modelConfigs ? channel : { ...channel, advancedConfig: { ...advanced, modelConfigs } };
 }
 
 export function channelProtocolValidationErrors(channel: SystemModelChannel) {
