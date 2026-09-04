@@ -1,8 +1,9 @@
-import { BookMarked, Clapperboard, Compass, FileText, FolderHeart, ImageIcon, Maximize2, Sparkles, UserRound, Video } from "lucide-react";
+import { BarChart3, BookMarked, Clapperboard, Compass, FileText, FolderHeart, ImageIcon, Maximize2, Sparkles, UserRound, Video } from "lucide-react";
 
 export const navigationGroups = [
     { id: "create", label: "创作" },
     { id: "projects", label: "项目" },
+    { id: "analytics", label: "经营" },
     { id: "assets", label: "资产" },
     { id: "community", label: "社区" },
 ] as const;
@@ -70,6 +71,13 @@ export const navigationTools = [
         description: "公共提示词",
         group: "assets",
         icon: FileText,
+    },
+    {
+        slug: "analytics",
+        label: "数据分析",
+        description: "千川商品、素材与计划",
+        group: "analytics",
+        icon: BarChart3,
     },
     {
         slug: "community",

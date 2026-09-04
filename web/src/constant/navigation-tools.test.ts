@@ -12,7 +12,7 @@ describe("user navigation order", () => {
     });
 
     it("places the dedicated image and video workbenches before project tools", () => {
-        expect(navigationGroups.map((group) => group.label)).toEqual(["创作", "项目", "资产", "社区"]);
+        expect(navigationGroups.map((group) => group.label)).toEqual(["创作", "项目", "经营", "资产", "社区"]);
         expect(navigationTools.filter((tool) => tool.group === "create").map((tool) => tool.slug)).toEqual(["create", "image", "video"]);
         expect(navigationTools.findIndex((tool) => tool.slug === "video")).toBeLessThan(navigationTools.findIndex((tool) => tool.slug === "canvas"));
     });

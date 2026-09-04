@@ -11,6 +11,12 @@ export type QueryExecutor = {
 const POSTGRES_TABLE_PREFIX = "vozeb_pro_";
 const POSTGRES_TABLES = [
     "schema_migrations",
+    "qianchuan_settings",
+    "qianchuan_oauth_states",
+    "qianchuan_connections",
+    "qianchuan_accounts",
+    "qianchuan_datasets",
+    "qianchuan_records",
     "app_settings",
     "system_model_channels",
     "entitlement_plans",

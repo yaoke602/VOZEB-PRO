@@ -1,6 +1,7 @@
 import { ALL_ADMIN_PERMISSIONS } from "@/lib/admin-permissions";
 import { POSTGRESQL_COMMERCIAL_FEATURES_SCHEMA_SQL } from "./schema-commercial-features";
 import { POSTGRESQL_TRIGGER_SCHEMA_SQL } from "./schema-triggers";
+import { POSTGRESQL_QIANCHUAN_SCHEMA_SQL } from "./schema-qianchuan";
 
 const FULL_ADMIN_PERMISSIONS_JSON = JSON.stringify(ALL_ADMIN_PERMISSIONS);
 
@@ -981,6 +982,7 @@ CREATE INDEX IF NOT EXISTS audit_logs_actor_user_idx ON audit_logs (actor_user_i
 CREATE INDEX IF NOT EXISTS audit_logs_target_idx ON audit_logs (target_type, target_id);
 
 ${POSTGRESQL_TRIGGER_SCHEMA_SQL}
+${POSTGRESQL_QIANCHUAN_SCHEMA_SQL}
 
 INSERT INTO schema_migrations (version)
 VALUES ('20260709_postgresql_commercial_base'), ('20260709_billing_foundation'), ('20260709_billing_checkout'), ('20260709_commercial_seed_products'), ('20260709_vozeb_pro_table_prefix'), ('20260711_generation_tasks'), ('20260716_billing_reconciliation'), ('20260725_account_deletion_requests'), ('20260726_promotion_coupon_commerce'), ('20260727_referral_growth_rewards'), ('20260727_work_publications'), ('20260727_work_community'), ('20260728_user_blocks')
