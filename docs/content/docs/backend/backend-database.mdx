@@ -7,6 +7,24 @@ description: VOZEB PRO PostgreSQL 主库表结构与 Repository 边界
 
 VOZEB PRO 商业版默认使用 PostgreSQL 作为主库。数据库初始化 SQL 由 `web/src/lib/server/database/schema.ts` 维护，服务端统一通过 `web/src/lib/server/database/` 下的 Repository 访问主库。
 
+## 千川分析新增表
+
+`schema-qianchuan.ts` 纳入现有 schema 初始化，实际表名统一带 `vozeb_pro_` 前缀，不修改已有创作、积分、媒体表：
+
+| 表 | 用途 |
+| --- | --- |
+| `qianchuan_settings` | 单应用 App ID、加密 Secret、回调与请求/单分类同步超时 |
+| `qianchuan_oauth_states` | 当前用户绑定的十分钟单次授权 state 摘要 |
+| `qianchuan_connections` | 用户独立授权、加密访问/刷新令牌及有效期 |
+| `qianchuan_accounts` | 用户/投放账户复合主键和授权归属 |
+| `qianchuan_datasets` | 用户/账户/分类/日期范围的成功同步时间及安全错误摘要 |
+| `qianchuan_records` | 分区内独立记录、numeric 指标和归一化 DTO，支持数据库检索分页 |
+| `qianchuan_analyses` | 用户/请求唯一身份、账户归属、问题指纹、pending/completed/failed 状态及成功回答与来源快照 |
+
+AI 查数用原子 INSERT 认领请求，不在等待模型时占用数据库事务。同请求成功后复用结果，正文改变返回 409；处理中或失败的请求不自动重发模型。最近成功回答按当前用户与账户恢复，解除账户绑定时级联清理。中断后不按固定时间自动判失败，用户确认需要重查时显式提交新问题；该能力尚非后台持久 Worker 工作流。
+
+报表范围为精确 `startDate/endDate`，目录类范围为 `catalog`。单分类同步在事务内按平台分页写入，失败回滚保留原快照；同一授权用事务咨询锁拒绝并发同步，Token 轮换先独立提交。页面读取使用只读可重复读事务，避免总数、列表、图表混读两次同步。解除本地账户绑定级联清理该用户的对应快照，不操作千川侧投放实体。备份应使用完整 PostgreSQL 备份，旧版业务 JSON 导出不包含这些新表。
+
 ## 环境变量
 
 ```bash

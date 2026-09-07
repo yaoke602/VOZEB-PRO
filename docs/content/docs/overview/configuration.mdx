@@ -9,7 +9,17 @@ description: VOZEB PRO 环境变量、模型渠道、服务器媒体与支付配
 
 管理员后台使用当前登录 Session、显式职责权限和脱敏审计。可选 TOTP 只在管理员登录和本人 MFA 管理时使用，支付、用户、设置、渠道密钥、对象存储和业务备份不再逐次要求当前密码或动态码。内置职责预设包括全权限、财务、客服与用户运营、内容审核、商品与营销运营、上游运维、系统运维和只读审计；管理员只能授予自己已有的职责。
 
+## 千川数据分析接入
+
+无需新增 `.env` 凭据：复用 PostgreSQL 和 `VOZEB_PRO_ENCRYPTION_KEY`，具有 `system.manage` 权限的管理员在 `/analytics` →「应用配置」填写巨量千川 App ID、App Secret 和回调地址。公网回调示例为 `https://aigc.mutangtech.com/api/qianchuan/callback`，必须与开放平台登记地址一致；个人用户在「授权账户」发起授权。原 Secret 留空表示不修改，更换 App ID 必须重新填写 Secret 并重新授权。请先确认应用具有所需账户、素材、商品、标准推广报表及全域计划的只读接口权限。
+
+单次请求与单分类同步超时可配置，界面初始值分别为 60 秒和 600 秒；单分类同步最多 600 秒，反向代理读取超时应覆盖该值。同步为用户主动操作，依次读取标准推广日报、全域商品推广计划、商品、图片与视频，不定时查询、不更改投放预算。标签切换只读取数据库；第一次授权后需点击「同步数据」。未授权使用显式演示数据；授权后无数据或无权限时保留空值/错误，不混入示例数据。文件存储模式仅支持演示。
+
 ## 核心环境变量
+
+千川 AI 查数无需额外模型密钥：在后台配置可用的默认文本模型即可。一次问题通常包含查询规划和结果解读两次文本调用，沿用渠道超时和现有积分/套餐规则；未同步或需要澄清时只做规划。反向代理超时应覆盖两个模型调用及候选渠道切换，不能只按千川同步超时设置。失败不会自动重新提问，确认作为新问题提交会产生新的调用计费。
+
+MCP 沿用已有 `VOZEB_PRO_MCP_TOKEN` 与 `VOZEB_PRO_MCP_USER_ID`；该用户必须是在网页完成千川授权的同一个用户。更新服务后在客户端刷新工具列表，即可依次调用 `qianchuan_accounts` 获取账户、`qianchuan_query` 查缓存、在明确要求同步时调用 `qianchuan_sync`。不需要新增 MCP 服务或 DataEase。
 
 | 变量                                         | 必填             | 说明                                                                                  |
 | -------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------- |
@@ -30,6 +40,8 @@ description: VOZEB PRO 环境变量、模型渠道、服务器媒体与支付配
 | `VOZEB_PRO_PRIVATE_UPSTREAM_HOSTS`           | 私网上游必填     | 允许访问的精确 Host/IP，逗号分隔；链路本地、云元数据和组播地址始终拒绝                |
 | `VOZEB_PRO_MAINTENANCE_TOKEN`                | 生产推荐         | 只供外部计划任务调用订单、邀请等维护接口，至少 32 个字符                              |
 | `VOZEB_PRO_WORKER_TOKEN`                     | 生产必填         | 只供 App 与生成 Worker 内部调用，至少 32 个字符且必须与维护令牌不同                   |
+| `VOZEB_PRO_MCP_TOKEN`                        | 启用 MCP 时必填  | 豆包、扣子等 MCP 客户端访问 `/api/mcp` 使用的固定 Bearer Token，至少 32 个字符        |
+| `VOZEB_PRO_MCP_USER_ID`                      | 启用 MCP 时必填  | MCP 创建的任务、积分和素材所属的现有启用用户 UUID                                     |
 | `VOZEB_PRO_WORKER_API_ORIGIN`                | 独立 Worker 可选 | Worker 调用主应用的站内地址；Compose 使用 `http://app:3000`，Render 注入私网 hostport |
 | `VOZEB_PRO_GENERATION_WORKER_ID`             | 否               | 生成 Worker 稳定标识；留空时由主机名和进程号生成                                      |
 | `VOZEB_PRO_GENERATION_WORKER_INTERVAL_MS`    | 否               | 空闲恢复批次初始间隔，默认 2000ms；连续空批次退避到 10000ms                           |
@@ -68,6 +80,41 @@ POSTGRES_PASSWORD=replace-with-a-strong-database-password
 安装页不会保存数据库密码或一次性安装令牌。GET 状态检查只执行连接与表存在性查询；只有提交与服务器 `VOZEB_PRO_INSTALL_TOKEN` 一致的令牌并点击“初始化表结构”才会创建 `vozeb_pro_` 前缀表。创建首个管理员必须再次提交同一令牌，普通公开注册永远只创建普通用户。安装完成后可从 App 环境变量移除该令牌，不影响站点继续运行。
 
 使用宝塔宿主机 PostgreSQL 时，应用通过 `docker-compose.baota.yml` 的 host 网络连接 `127.0.0.1:5432`；不要同时启动默认 Compose 中的 PostgreSQL 服务。
+
+## MCP 远程调用
+
+最小 MCP 不新增数据库表或后台配置页。先在后台创建或选择一个普通启用账号，再从服务器项目目录查询其内部 UUID：
+
+```bash
+docker compose exec postgres sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT id, account_id, username, email, status FROM vozeb_pro_users ORDER BY account_id;"'
+```
+
+生成固定令牌并写入项目 `.env`：
+
+```bash
+openssl rand -hex 32
+```
+
+```dotenv
+VOZEB_PRO_MCP_TOKEN=粘贴上一步生成的64位随机值
+VOZEB_PRO_MCP_USER_ID=粘贴目标用户的id字段
+```
+
+环境变量修改后重新创建 App 容器即可，数据库和 Worker 不需要重建：
+
+```bash
+docker compose up -d --force-recreate app
+```
+
+MCP 地址为 `https://你的域名/api/mcp`。在扣子中选择基于 MCP 服务创建插件，授权方式选择 `Service token / API key`，位置选择 Header，参数名填写 `Authorization`，值填写 `Bearer <VOZEB_PRO_MCP_TOKEN>`。当前提供五个工具：
+
+- `agent_run_create`：异步创建 Agent、图片、视频或音频任务并返回 Run ID。
+- `agent_run_get`：按 Run ID 查询任务状态、子任务和生成素材完整地址。
+- `canvas_project_create`：创建真实画布项目并返回项目 ID 和浏览器地址。
+- `canvas_agent_execute`：让现有 Canvas Agent 根据要求操作指定画布，返回异步 Run ID。
+- `canvas_agent_get`：查询 Canvas Agent Run，并将已经产生的节点、连线和视口操作保存到真实画布项目。
+
+画布调用顺序为“创建画布 → 提交 Canvas Agent → 轮询画布 Run → 打开 `canvasUrl`”。当 Run 仍为 `planning` 或 `running` 时，客户端必须继续调用 `canvas_agent_get`；该查询同时负责把 Agent 事件中的画布操作同步到项目。返回内容包含普通 Markdown 链接和 MCP `resource_link`，支持链接的客户端可直接打开现有网页画布；不支持 MCP Apps 内嵌页面的客户端也可交给用户在浏览器打开。网页仍使用 VOZEB 原有登录，不会把登录态或整套前端嵌入 MCP。
 
 ## 0.0.6 发布部署要求
 

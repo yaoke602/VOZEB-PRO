@@ -5,6 +5,14 @@ description: 当前接口响应事实与管理员敏感配置契约
 
 # 接口响应与敏感配置
 
+## 千川分析接口
+
+`POST /api/qianchuan/ask` 接收 `{ requestId: UUID, question, query }`，query 沿用 data 的字段。服务端从 Session 绑定用户和账户，只让默认文本模型规划白名单查询，再解读已同步结果，不接受 SQL。返回问题、回答、最终查询条件及来源摘要（命中数量、当前页明细数量、同步时间、完整筛选汇总、警告）。`GET /api/qianchuan/analysis?accountId=...` 恢复当前用户该账户最近一次成功回答。缺失数据不造零，未同步提示显式同步；模型/配置失败按非 2xx 返回，不回退演示。
+
+现有 `/api/mcp` 新增 `qianchuan_accounts`、`qianchuan_query`、`qianchuan_sync`。用户身份仍来自现有 MCP Token 绑定，工具不接受 userId。accounts 返回账户 ID/名称和可用状态，不返回令牌或授权连接。query 使用相同查询参数返回缓存报表、统计口径和 hasMore；sync 仅在调用方用户明确要求时执行手动同步，不更改投放。MCP 返回结构化数据供客户端模型分析，不额外调用站内文本模型。
+
+新增 `/api/qianchuan/{action}` 使用当前用户 Session 和 `{ code, data, msg }`，设置 `private, no-store`，不向客户端暴露令牌、Secret 或原始上游错误。`GET status` 仅向有 `system.manage` 权限的管理员返回脱敏应用配置；`GET data` 接收 `accountId/kind/startDate/endDate/page/pageSize/keyword/sort`，必须属于当前用户。`POST settings` 仅限该管理员职责并记录审计；`POST authorize` 返回单次 OAuth URL；`GET callback` 校验当前用户/state 后交换令牌并跳回分析页；`POST accounts` 刷新当前用户的授权账户；`POST sync` 同步指定分类；`POST disconnect` 只解除本地账户绑定并清理其快照。无权限或错误不回退演示数据，部分授权刷新失败时已成功的账户仍会保存。
+
 ## 当前响应规则
 
 现有 Next.js Route Handler 按业务返回 JSON，错误通常使用 `{ error: string }` 并配合对应 HTTP 状态码。项目正在渐进统一为 `{ code, data, msg }`，不能一次性改写现有消费者。公共 helper `apiSuccess()`、`apiError()` 和 `apiCompatError()` 分别提供标准成功、标准失败和同时保留旧 `error` 字段的兼容失败响应；新增或修改接口应在契约测试保护下选择对应 helper，并在边界校验身份、权限和外部输入。
@@ -167,6 +175,18 @@ Canvas 语义编辑通过 `PATCH /api/canvas/projects/{id}` 提交 compact mutat
 `POST /api/agent/runs/{id}/{cancel|pause|resume|retry}` 可接收 `{ conversationId: string }` 作为调用方当前预期会话。`/create` 必须提交该字段；若字段为空返回 400，若 Run 不属于该会话返回 409，且不会修改 Run、子任务或上游任务。切换对话本身不调用控制接口，只关闭旧页面的 SSE 观察；切回运行中对话时继续使用原 Run 和上游任务身份。
 
 创建后续 Run 时，服务端读取同一会话的持久摘要和近期已完成消息，规划输入最多保留最近 6 条并在超出预算时继续裁剪；前端只需继续提交稳定 `conversationId`。同一 deliverable 可选择多个 `assetIds`，依赖 deliverable 完成后登记的资产会自动成为下游图片/视频任务的真实参考素材。显式选择逻辑媒体模型时跳过文本规划；否则普通、多结果和短剧/复杂 Canvas 分别使用有界的规划输入与输出提示预算。
+
+### MCP
+
+`POST /api/mcp` 是面向豆包、扣子和其他 MCP 客户端的 Streamable HTTP 入口，遵循 MCP JSON-RPC 响应，不使用普通业务接口的 `{ code, data, msg }` 包装。请求必须携带 `Authorization: Bearer <VOZEB_PRO_MCP_TOKEN>`，服务端把调用固定归属到 `VOZEB_PRO_MCP_USER_ID` 对应的启用用户。
+
+- `agent_run_create`：接收 `prompt`、`agent/image/video/audio` 模式、可选 `requestId`、`conversationId` 和已有 `assetIds`；复用现有 Agent 规划、并发限制、积分、生成 Worker 与幂等任务。
+- `agent_run_get`：接收 `runId`，只读取绑定用户拥有的 Run；返回公开 Run 快照以及当前已完成素材的 ID、类型、媒体信息和完整访问地址。
+- `canvas_project_create`：创建绑定用户拥有的真实 Canvas 项目，返回项目摘要、完整 `canvasUrl` 和 `text/html` 类型的 MCP `resource_link`。
+- `canvas_agent_execute`：接收 `projectId`、`prompt`、可选 `requestId`、`selectedNodeIds` 和已有 `assetIds`；读取现有项目快照并创建 `surface=canvas` 的真实 Agent Run。
+- `canvas_agent_get`：读取绑定用户拥有的 Canvas Run，重放 Run 事件中的 `add_node`、`update_node`、删除、连线和视口操作，并通过现有 Canvas 项目服务保存持久画布状态；节点选择属于页面临时交互状态，不写入项目。
+
+创建工具只提交异步任务，不等待图片或视频生成完成。客户端应保存返回的 Run ID，并在状态为 `planning` 或 `running` 时稍后再次调用对应查询工具。Canvas Agent 必须通过 `canvas_agent_get` 完成操作同步；浏览器链接继续打开原有 `/canvas/{projectId}` 页面，不要求客户端支持 MCP Apps，也不建立第二套画布状态或操作协议。同一 `requestId` 只能在同一创作入口和同一项目内幂等复用。
 
 文本规划根据模型级或渠道级预设直接选择 Chat、Responses、Gemini 或自定义协议，同一候选不会因协议猜测产生第二次上游请求。所有文本候选统一允许 3 分钟，文本模型能力档案不覆盖该上限；失败、超时、429 或 5xx 后调用方自动尝试下一个逻辑模型绑定，当前进程根据近期成功率、延迟和短期冷却状态排序候选。结构化规划不额外写死协议输出 token 上限，继续遵循后台模型与渠道的真实能力配置。
 
