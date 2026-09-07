@@ -1,33 +1,6 @@
-<p align="center">
-  <img src="web/public/logo.svg?v=0.0.6" width="108" alt="VOZEB PRO logo">
-</p>
 
-<h1 align="center">VOZEB PRO</h1>
 
-<p align="center">面向统一创作 Agent、Canvas 与短剧生产的开源 AI 创作平台</p>
-
-<p align="center">
-  <a href="https://github.com/csyqlz/VOZEB-PRO"><img src="https://img.shields.io/github/stars/csyqlz/VOZEB-PRO?style=flat-square&logo=github" alt="GitHub stars"></a>
-  <a href="VERSION"><img src="https://img.shields.io/badge/version-v0.0.6-2563eb?style=flat-square" alt="Version"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-f97316?style=flat-square" alt="License"></a>
-  <a href="https://nextjs.org/"><img src="https://img.shields.io/badge/Next.js-16.2-000000?style=flat-square&logo=nextdotjs" alt="Next.js"></a>
-  <a href="https://www.postgresql.org/"><img src="https://img.shields.io/badge/PostgreSQL-16-4169e1?style=flat-square&logo=postgresql" alt="PostgreSQL"></a>
-</p>
-
-<p align="center">
-  <a href="https://www.vozeb.com">演示站</a> ·
-  <a href="docs/index.md">文档索引</a> ·
-  <a href="docs/content/docs/overview/configuration.mdx">0.0.6 发布说明</a> ·
-  <a href="#目录与文件用途">目录与文件用途</a> ·
-  <a href="docs/content/docs/overview/page-gallery.mdx">页面图册</a> ·
-  <a href="https://linux.do">LINUX DO</a> ·
-  <a href="CONTRIBUTING.md">参与贡献</a> ·
-  <a href="CHANGELOG.md">更新记录</a>
-</p>
-
-![VOZEB PRO 首页](docs/public/screenshots/pages/01-home.webp)
-
-VOZEB PRO 把统一创作 Agent、画布、短剧生产、素材库和商业运营后台放在同一套 Next.js 全栈应用中。PostgreSQL 保存账号与业务数据；媒体可写入服务器本地目录或 S3 兼容对象存储；模型、支付和存储密钥只在服务端使用。
+把统一创作 Agent、画布、短剧生产、素材库和商业运营后台放在同一套 Next.js 全栈应用中。PostgreSQL 保存账号与业务数据；媒体可写入服务器本地目录或 S3 兼容对象存储；模型、支付和存储密钥只在服务端使用。
 
 ## 核心功能
 
@@ -372,7 +345,7 @@ flowchart LR
 
 ## 最低服务器配置
 
-VOZEB PRO 调用外部 AI 模型，不要求 GPU。服务器主要承担 Web、PostgreSQL、媒体下载/存储和可选 FFmpeg 转码。
+调用外部 AI 模型，不要求 GPU。服务器主要承担 Web、PostgreSQL、媒体下载/存储和可选 FFmpeg 转码。
 
 | 使用方式                   | CPU      | 内存           | 磁盘      | 说明                                                                |
 | -------------------------- | -------- | -------------- | --------- | ------------------------------------------------------------------- |
@@ -499,24 +472,6 @@ pnpm run dev
 
 更完整的目录树、关键源码入口、Service、Route Handler、Repository 和任务 Store 职责见[项目结构与流程](docs/content/docs/overview/project-structure.mdx)。
 
-## 页面展示
-
-<table>
-  <tr>
-    <td width="50%"><img src="docs/public/screenshots/pages/02-create.webp" alt="统一创作 Agent"></td>
-    <td width="50%"><img src="docs/public/screenshots/pages/03a-canvas-editor.webp" alt="Canvas 编辑器"></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="docs/public/screenshots/pages/04a-drama-editor.webp" alt="短剧生产编辑器"></td>
-    <td width="50%"><img src="docs/public/screenshots/pages/20-admin-overview.webp" alt="经营看板"></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="docs/public/screenshots/pages/34-admin-channels.webp" alt="模型渠道"></td>
-    <td width="50%"><img src="docs/public/screenshots/pages/07-prompts.webp" alt="提示词库"></td>
-  </tr>
-</table>
-
-用户端、公开页和管理后台共 40 张功能截图见[页面功能图册](docs/content/docs/overview/page-gallery.mdx)。
 
 ## 数据与安全
 
