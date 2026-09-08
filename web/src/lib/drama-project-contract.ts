@@ -162,6 +162,7 @@ export type DramaSourceAsset = {
 };
 
 export type DramaProject = {
+    remake?: import("./remake-contract").RemakeState;
     id: string;
     sourceHandoffId?: string;
     title: string;

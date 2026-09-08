@@ -1,7 +1,8 @@
 import { getAuthSettings, refundUserPoints, type LogicalModelCapability } from "@/lib/auth/store";
 import { withCreativeFoundation, type CreativeReview } from "@/lib/creative-agent-contract";
 import type { CreativeAsset, CreativeGenerationPreferences, CreativeSurface } from "@/lib/creative-runtime-contract";
-import { creativeAssetReferenceAliases } from "@/lib/creative-asset-references";
+import { creativeAssetReferenceAliases, typedReferenceAliases } from "@/lib/creative-asset-references";
+import { isRemakeVideoPlanning, remakeVideoPrompt } from "./remake-video-prompt";
 import { fetchInternalApi } from "@/lib/server/internal-origin";
 import { resolveLogicalModel } from "@/lib/server/logical-model-router";
 import { reviewCreativeOutputs } from "@/lib/server/creative-review-service";
@@ -179,7 +180,8 @@ export function normalizeTasks(
         const frameIds = item.type === "video" ? videoFrameAssetIds(generationPreferences?.video) : [];
         const frameIdSet = new Set(frameIds);
         const explicitFrameAssets = resolveTaskReferences(frameIds, assets, item.type);
-        const plannedAssets = target ? [] : resolveTaskReferences(item.assetIds, assets, item.type).filter((asset) => !frameIdSet.has(asset.id));
+        const requestedAssetIds = item.type === "video" && isRemakeVideoPlanning(surface, snapshot) ? referencedAssets.map((asset) => asset.id) : item.assetIds;
+        const plannedAssets = target ? [] : resolveTaskReferences(requestedAssetIds, assets, item.type).filter((asset) => !frameIdSet.has(asset.id));
         const selectedAssets = [...explicitFrameAssets, ...plannedAssets];
         const frameRoles = new Map<string, VideoReferenceRole>([
             ...(generationPreferences?.video?.firstFrameAssetId ? ([[generationPreferences.video.firstFrameAssetId, "first_frame"]] as const) : []),
@@ -200,6 +202,7 @@ export function normalizeTasks(
         const primaryReference = references[0];
         const referenceContext = selectedAssets.map((asset) => creativeAssetContext(asset, referenceAliases.get(asset.id))).join("\n");
         const selectedCanvasContext = canvasReferenceContext(canvasReferences);
+        const compactVideoPrompt = item.type === "video" && isRemakeVideoPlanning(surface, snapshot) ? remakeVideoPrompt(optimizedPrompt, selectedAssets, referenceAliases) : undefined;
         return {
             id: item.id?.trim() || `task-${index}`,
             targetNodeId: target ? targetNodeId : undefined,
@@ -210,8 +213,10 @@ export function normalizeTasks(
             title: item.title.trim(),
             type: item.type,
             model: resolvePlannedModel(settings, item.type, item.model),
-            optimizedPrompt,
-            prompt: `${withCreativeFoundation(optimizedPrompt, plan.foundation)}${skillInstructions ? `\n\n执行以下已选 Skill 约束：\n${skillInstructions}` : ""}${textConstraintInstruction(requestPrompt, item.type)}${target ? `\n\n基于画布已有节点进行局部修改：${target.summary}` : ""}${selectedCanvasContext ? `\n\n使用本轮画布引用：\n${selectedCanvasContext}` : ""}${referenceContext ? `\n\n使用已引用创作资产：${referenceContext}` : ""}`,
+            optimizedPrompt: compactVideoPrompt ?? optimizedPrompt,
+            prompt:
+                compactVideoPrompt ??
+                `${withCreativeFoundation(optimizedPrompt, plan.foundation)}${skillInstructions ? `\n\n执行以下已选 Skill 约束：\n${skillInstructions}` : ""}${textConstraintInstruction(requestPrompt, item.type)}${target ? `\n\n基于画布已有节点进行局部修改：${target.summary}` : ""}${selectedCanvasContext ? `\n\n使用本轮画布引用：\n${selectedCanvasContext}` : ""}${referenceContext ? `\n\n使用已引用创作资产：${referenceContext}` : ""}`,
             count: resolveAgentTaskCount(
                 item.type,
                 item.type === "image" ? generationPreferences?.image?.count || item.count : item.type === "video" ? generationPreferences?.video?.count || item.count : item.count,
@@ -598,7 +603,21 @@ export async function withDependencyContext(runId: string, task: AgentRunTask): 
         .filter((item) => item.length > 4)
         .join("\n");
     const assetContext = dependencyAssets.map((asset) => creativeAssetContext(asset)).join("\n");
-    const context = [taskContext, assetContext].filter(Boolean).join("\n");
+    const compactRemake = task.type === "video" && isRemakeVideoPlanning(run.surface, run.snapshot);
+    const aliases = compactRemake
+        ? typedReferenceAliases(
+              references.map((ref) => ({ id: ref.url, type: ref.type })),
+              references.map((ref) => ref.url),
+          )
+        : new Map<string, string>();
+    const context = compactRemake
+        ? [
+              ...dependencyReferences.map((ref) => `${aliases.get(ref.url)}：本镜头依赖的已生成参考素材，保持其画面内容一致。`),
+              ...dependencies.filter((item) => item.type === "text").map(({ result }) => (typeof result === "string" ? result : result && typeof result === "object" && "content" in result && typeof result.content === "string" ? result.content : "")),
+          ]
+              .filter(Boolean)
+              .join("\n")
+        : [taskContext, assetContext].filter(Boolean).join("\n");
     const primaryReference = references[0];
     return {
         ...task,

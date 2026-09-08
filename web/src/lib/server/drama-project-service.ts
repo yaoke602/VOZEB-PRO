@@ -198,6 +198,7 @@ export function normalizeProject(value: unknown, current: DramaProject): DramaPr
     if (!ratio) throw new DramaProjectServiceError("短剧尺寸无效", 400);
     return {
         id: current.id,
+        remake: current.remake,
         sourceHandoffId: current.sourceHandoffId,
         title: cleanText(input.title) || current.title,
         summary: cleanText(input.summary),

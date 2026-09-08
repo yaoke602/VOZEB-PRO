@@ -1,4 +1,4 @@
-import { BarChart3, BookMarked, Clapperboard, Compass, FileText, FolderHeart, ImageIcon, Maximize2, Sparkles, UserRound, Video } from "lucide-react";
+import { BarChart3, BookMarked, Clapperboard, Compass, FileText, FolderHeart, ImageIcon, Maximize2, RefreshCw, Sparkles, UserRound, Video } from "lucide-react";
 
 export const navigationGroups = [
     { id: "create", label: "创作" },
@@ -30,6 +30,7 @@ export const navigationTools = [
         group: "create",
         icon: ImageIcon,
     },
+    { slug: "remake", label: "爆款复刻", description: "原视频、主体替换、分镜与成片", group: "projects", icon: RefreshCw },
     {
         slug: "video",
         label: "AI 视频",

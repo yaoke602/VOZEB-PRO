@@ -75,7 +75,7 @@ describe("drama project file provider", () => {
         });
 
         await expect(listDramaProjectSummaries("user-one", { page: 2, pageSize: 12 })).resolves.toMatchObject({ total: 25, page: 2, pageSize: 12, items: [{ id: "drama-one" }] });
-        expect(mocks.postgresQuery).toHaveBeenCalledWith(expect.stringMatching(/COUNT\(\*\) OVER\(\)[\s\S]*LIMIT \$2 OFFSET \$3/), ["user-one", 12, 12]);
+        expect(mocks.postgresQuery).toHaveBeenCalledWith(expect.stringMatching(/COUNT\(\*\) OVER\(\)[\s\S]*LIMIT \$2 OFFSET \$3/), ["user-one", 12, 12, false]);
     });
 
     it("persists multi-episode task state in the aggregate snapshot", async () => {

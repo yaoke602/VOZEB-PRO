@@ -8,6 +8,7 @@ import { getCreativeAssetsByIds, getCreativeConversationContext, listRecentCreat
 import { toSafeGenerationErrorMessage } from "@/lib/server/generation-errors";
 import { parseAgentPlanCall, type AgentFunctionCallResult } from "./agent-function-call";
 import { agentModelOptions, agentPlanFallbackExample, agentPlanTool, canContinue, directAgentPlan, executeTasks, normalizeTasks, planToOps, refundFunctionCall, requestFunctionCall } from "./agent-run-execution";
+import { isRemakeVideoPlanning, REMAKE_VIDEO_PLANNER_INSTRUCTION } from "./remake-video-prompt";
 import { isExplicitProjectHandoffRequest, normalizeAgentProjectHandoff } from "./agent-run-project-handoff";
 import { normalizeCanvasPlanForSelection } from "./agent-run-task-input";
 import { GenerationSubmissionUncertainError } from "@/lib/server/generation-submission-error";
@@ -86,12 +87,20 @@ export async function executeAgentRun(run: AgentRun, origin: string, cookie: str
         const candidates = resolveLogicalModelCandidates(settings, "text", model);
         if (!model || !candidates.length) throw new Error("后台尚未配置可用的默认文本模型");
         const fallbackExample = agentPlanFallbackExample(availableModels);
-        const plannerContext = buildAgentPlannerInput(claimed, conversationContext!, referencedAssets, referenceSource, skillOptions, availableModels, settings);
+        const plannerContext = buildAgentPlannerInput(
+            claimed,
+            isRemakeVideoPlanning(claimed.surface, claimed.snapshot) ? { summary: "", summaryThroughSequence: 0, recentMessages: [] } : conversationContext!,
+            referencedAssets,
+            referenceSource,
+            skillOptions,
+            availableModels,
+            settings,
+        );
         if (!(await updateAgentRunById(run.id, { plannerContext: plannerContext.summary }, { type: "skills.selected", data: { skills: skills.map((skill) => ({ id: skill.id, name: skill.name })) } }, ["running"], executionId))) return;
         const planningInput = [
             {
                 role: "system",
-                content: agentPlannerSystemPrompt(claimed.surface, fallbackExample),
+                content: agentPlannerSystemPrompt(claimed.surface, fallbackExample) + (isRemakeVideoPlanning(claimed.surface, claimed.snapshot) ? `\n${REMAKE_VIDEO_PLANNER_INSTRUCTION}` : ""),
             },
             {
                 role: "user",

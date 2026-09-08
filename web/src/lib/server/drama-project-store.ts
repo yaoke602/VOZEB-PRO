@@ -9,7 +9,7 @@ type DramaProjectDatabase = { version: 1; projects: DramaProjectRecord[] };
 
 const FILE_NAME = "drama-projects.json";
 
-export async function listDramaProjectSummaries(userId: string, input: { page?: number; pageSize?: number } = {}): Promise<DramaProjectSummaryPage> {
+export async function listDramaProjectSummaries(userId: string, input: { page?: number; pageSize?: number; remake?: boolean } = {}): Promise<DramaProjectSummaryPage> {
     const page = Math.max(1, Math.floor(Number(input.page) || 1));
     const pageSize = Math.max(1, Math.min(100, Math.floor(Number(input.pageSize) || 20)));
     if (getDatabaseProvider() === "postgres") {
@@ -50,15 +50,15 @@ export async function listDramaProjectSummaries(userId: string, input: { page?: 
                 FROM jsonb_array_elements(COALESCE(project.project_json->'episodes', '[]'::jsonb)) episode
                 CROSS JOIN LATERAL jsonb_array_elements(COALESCE(episode->'shots', '[]'::jsonb)) shot
              ) tasks ON TRUE
-             WHERE project.user_id = $1
+             WHERE project.user_id = $1 AND (project.project_json->'remake' IS NOT NULL) = $4
              ORDER BY project.updated_at DESC
              LIMIT $2 OFFSET $3`,
-            [userId, pageSize, (page - 1) * pageSize],
+            [userId, pageSize, (page - 1) * pageSize, Boolean(input.remake)],
         );
         return { items: result.rows.map(summaryFromRow), total: Number(result.rows[0]?.total_count) || 0, page, pageSize };
     }
     const summaries = (await readDatabase()).projects
-        .filter((record) => record.userId === userId)
+        .filter((record) => record.userId === userId && Boolean(record.project.remake) === Boolean(input.remake))
         .map((record) => summarizeDramaProject(record.project))
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     return { items: summaries.slice((page - 1) * pageSize, page * pageSize), total: summaries.length, page, pageSize };

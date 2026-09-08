@@ -46,10 +46,45 @@ vi.mock("@/lib/server/agent-run-store", async (importOriginal) => {
 });
 
 import { executeAgentRun } from "./agent-run-executor";
-import { processAgentRunReview, taskResultOps } from "./agent-run-execution";
+import { processAgentRunReview, taskResultOps, withDependencyContext } from "./agent-run-execution";
 import { resetTextPlanningRuntime } from "./text-planning-runtime";
 
 describe("executeAgentRun backend settings", () => {
+    it.each([true, false])("isolates stale conversation instructions only for remake planning (remake=%s)", async (remake) => {
+        mocks.run = { ...planningRun("按本轮替换图生成"), surface: "drama", snapshot: remake ? { workflow: "remake" } : {} };
+        mocks.getAuthSettings.mockResolvedValue(canvasSettings("image-default", "image-channel"));
+        mocks.getCreativeConversationContext.mockResolvedValue({ summary: "旧商品必须为桑椹汁", summaryThroughSequence: 1, recentMessages: [] });
+        mocks.fetchInternalApi.mockImplementation(async (url: string) => {
+            if (url.endsWith("/responses")) return new Response("unsupported endpoint", { status: 404 });
+            if (url.endsWith("/chat/completions")) return Response.json({ choices: [{ message: { content: JSON.stringify(conversationPlan("image-default", "已了解")) } }] });
+            throw new Error(`unexpected request: ${url}`);
+        });
+        await executeAgentRun(mocks.run, "http://localhost", "session=test");
+        const call = mocks.fetchInternalApi.mock.calls.find(([url]) => String(url).endsWith("/chat/completions"));
+        const body = JSON.parse(String(call?.[1]?.body));
+        expect(JSON.parse(body.messages[1].content).conversationContext.summary).toBe(remake ? "" : "旧商品必须为桑椹汁");
+        expect(body.messages[0].content.includes("不得把可能来自原视频的卡片名称当成新商品品名")).toBe(remake);
+    });
+    it("keeps remake dependency attachments and text without adding media metadata back into the prompt", async () => {
+        const task = { ...imageTask("video"), type: "video" as const, prompt: "图片1提供场景。", dependencies: ["image", "copy"], references: [{ assetId: "original", type: "image" as const, url: "/api/reference-assets/original.png" }] };
+        mocks.run = {
+            ...runWithTasks([
+                { ...imageTask("image"), status: "completed", assetIds: ["generated"], result: { url: "https://private.example/output.png" } },
+                { ...imageTask("copy"), type: "text", status: "completed", result: { content: "对白：欢迎了解我们的苹果汁。" } },
+                task,
+            ]),
+            surface: "drama",
+            snapshot: { workflow: "remake" },
+        };
+        mocks.getCreativeAssetsByIds.mockResolvedValue([{ id: "generated", type: "image", title: "内部文件.png", serverUrl: "/api/reference-assets/generated.png" }]);
+        const result = await withDependencyContext(mocks.run.id, task);
+        expect(result.references?.map((ref) => ref.assetId)).toEqual(["original", "generated"]);
+        expect(result.prompt).toContain("图片2：本镜头依赖的已生成参考素材");
+        expect(result.prompt).toContain("对白：欢迎了解我们的苹果汁。");
+        expect(result.prompt).not.toMatch(/内部文件|private\.example|\/api\/|资产 ID/);
+        mocks.run.snapshot = {};
+        expect((await withDependencyContext(mocks.run.id, task)).prompt).toContain("/api/reference-assets/generated.png");
+    });
     beforeEach(() => {
         vi.clearAllMocks();
         resetTextPlanningRuntime();

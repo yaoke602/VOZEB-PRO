@@ -39,11 +39,11 @@ export type TextTask = {
     attemptNo?: number;
 };
 
-export async function createTextTask(input: Omit<TextTask, "id" | "status" | "createdAt" | "updatedAt">) {
+export async function createTextTask(input: Omit<TextTask, "id" | "status" | "createdAt" | "updatedAt">, id = randomUUID()) {
     const now = Date.now();
     const task: TextTask = {
         ...input,
-        id: randomUUID(),
+        id,
         status: "pending",
         createdAt: now,
         updatedAt: now,

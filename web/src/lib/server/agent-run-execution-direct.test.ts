@@ -2,6 +2,64 @@ import { describe, expect, it } from "vitest";
 
 import { directAgentPlan, normalizeTasks, planToOps, readFunctionCallResult, taskResultOps } from "./agent-run-execution";
 import { agentSurfaceImageSize, normalizeCanvasPlanForSelection, resolveAgentTaskRatio } from "./agent-run-task-input";
+import type { CreativeAsset } from "@/lib/creative-runtime-contract";
+import { remakeVideoPrompt } from "./remake-video-prompt";
+
+describe("remake video provider prompt", () => {
+    const assets = ["one", "two"].map((id) => ({ id: `asset-${id}`, type: "image", title: `内部文件-${id}.png`, serverUrl: `/api/reference-assets/${id}.png`, status: "ready" })) as CreativeAsset[];
+    const plan = {
+        intent: "generation",
+        objective: "商品展示",
+        reply: "开始生成",
+        decisions: [],
+        foundation: { complexity: "simple", brief: { objective: "内部目标" }, direction: { summary: "内部视觉方向" } },
+        deliverables: [{ id: "video", title: "商品展示", type: "video", model: "video-pro", prompt: "图片2提供场景，asset-one提供商品，字幕为苹果汁，缓慢推近。", assetIds: ["asset-two", "asset-one"], count: 1, dependencies: [] }],
+    };
+
+    it("sends visual instructions and aliases matching actual attachment order, without internal metadata", () => {
+        const [task] = normalizeTasks(plan as never, [], generationSettings() as never, { workflow: "remake" }, "展示商品", "drama", assets);
+        expect(task.prompt).toBe("图片2提供场景，图片1提供商品，字幕为苹果汁，缓慢推近。");
+        expect(task.optimizedPrompt).toBe(task.prompt);
+        expect(task.references?.map((ref) => ref.assetId)).toEqual(["asset-one", "asset-two"]);
+        expect(task.references?.map((ref) => ref.url)).toEqual([assets[0].serverUrl, assets[1].serverUrl]);
+        expect(task.model).toBe("video-pro");
+        expect(task.prompt).not.toMatch(/统一创作约束|使用已引用创作资产|内部目标|asset-|\/api\//);
+    });
+
+    it("retains all selected remake media even when the planner omits a selected product", () => {
+        const partial = { ...plan, deliverables: [{ ...plan.deliverables[0], assetIds: ["asset-one"] }] };
+        const [task] = normalizeTasks(partial as never, [], generationSettings() as never, { workflow: "remake" }, "更换人物和商品", "drama", assets);
+        expect(task.references?.map((ref) => ref.assetId)).toEqual(["asset-one", "asset-two"]);
+        const [ordinary] = normalizeTasks(partial as never, [], generationSettings() as never, {}, "更换人物和商品", "drama", assets);
+        expect(ordinary.references?.map((ref) => ref.assetId)).toEqual(["asset-one"]);
+    });
+
+    it("leaves ordinary drama/chat/canvas and remake image prompt compilation unchanged", () => {
+        for (const surface of ["drama", "chat", "canvas"] as const) {
+            const [task] = normalizeTasks(plan as never, [], generationSettings() as never, surface === "drama" ? {} : { workflow: "remake" }, "展示商品", surface, assets);
+            expect(task.prompt).toContain("统一创作约束");
+            expect(task.prompt).toContain("使用已引用创作资产");
+        }
+        const imagePlan = { ...plan, deliverables: [{ ...plan.deliverables[0], type: "image", model: "image-pro" }] };
+        const [image] = normalizeTasks(imagePlan as never, [], generationSettings() as never, { workflow: "remake" }, "展示商品", "drama", assets);
+        expect(image.prompt).toContain("统一创作约束");
+    });
+
+    it("remaps known IDs, URLs and aliases in one pass without changing other words or partial IDs", () => {
+        const prompt = "@图片10、图片1、asset-one、/api/reference-assets/two.png；图片100、asset-one-extra、prefix-asset-one；保留品牌和对白。";
+        expect(
+            remakeVideoPrompt(
+                prompt,
+                [assets[1], assets[0]],
+                new Map([
+                    ["asset-one", "图片1"],
+                    ["asset-two", "图片10"],
+                ]),
+            ),
+        ).toBe("图片1、图片2、图片2、图片1；图片100、asset-one-extra、prefix-asset-one；保留品牌和对白。");
+        expect(remakeVideoPrompt("  空镜头，保持自然光。  ", [], new Map())).toBe("空镜头，保持自然光。");
+    });
+});
 
 describe("directAgentPlan", () => {
     it("使用用户指定的媒体模型创建单任务计划", () => {
